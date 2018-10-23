@@ -22,13 +22,39 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
-package com.oracle.svm.core.graal.code;
+package com.oracle.svm.core.graal.code.aarch64;
 
+import org.graalvm.compiler.core.aarch64.AArch64AddressLoweringByUse;
+import org.graalvm.compiler.core.aarch64.AArch64LIRKindTool;
 import org.graalvm.compiler.core.common.CompressEncoding;
 import org.graalvm.compiler.phases.Phase;
+import org.graalvm.compiler.phases.common.AddressLoweringByUsePhase;
+import org.graalvm.nativeimage.Feature;
+import org.graalvm.nativeimage.ImageSingletons;
+import org.graalvm.nativeimage.Platform;
+import org.graalvm.nativeimage.Platforms;
 
+import com.oracle.svm.core.annotate.AutomaticFeature;
+import com.oracle.svm.core.graal.code.SubstrateAddressLoweringPhaseFactory;
 import com.oracle.svm.core.graal.meta.SubstrateRegisterConfig;
 
-public interface SubstrateAddressLoweringPhaseFactory {
-    Phase newAddressLowering(CompressEncoding encoding, SubstrateRegisterConfig registerConfig);
+@AutomaticFeature
+@Platforms(Platform.AArch64.class)
+class SubstrateAArch64AddressLoweringPhaseFactory implements Feature {
+    @Override
+    public void afterRegistration(AfterRegistrationAccess access) {
+        ImageSingletons.add(SubstrateAddressLoweringPhaseFactory.class, new SubstrateAddressLoweringPhaseFactory() {
+
+            @Override
+            public Phase newAddressLowering(CompressEncoding encoding, SubstrateRegisterConfig registerConfig) {
+                return new AddressLoweringByUsePhase(new SubstrateAArch64AddressLowering());
+            }
+        });
+    }
+}
+
+public class SubstrateAArch64AddressLowering extends AArch64AddressLoweringByUse {
+    public SubstrateAArch64AddressLowering() {
+        super(new AArch64LIRKindTool());
+    }
 }

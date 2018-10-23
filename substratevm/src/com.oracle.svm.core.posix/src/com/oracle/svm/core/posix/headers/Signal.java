@@ -143,7 +143,7 @@ public class Signal {
                 __sigset_t uc_sigmask;
                 struct _libc_fpstate __fpregs_mem;
               } ucontext_t;
-        
+
             // Context to describe whole processor state.
             typedef struct
               {
@@ -156,6 +156,10 @@ public class Signal {
         @CFieldAddress("uc_mcontext.gregs")
         @Platforms(Platform.LINUX_AMD64.class)
         GregsPointer uc_mcontext_gregs();
+
+        @CFieldAddress("uc_mcontext.regs")
+        @Platforms(Platform.LINUX_AArch64.class)
+        GregsPointer uc_mcontext_regs();
     }
 
     /** Advanced interface to a C signal handler. */

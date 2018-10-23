@@ -24,21 +24,23 @@
  */
 package org.graalvm.compiler.lir.aarch64;
 
+import static jdk.vm.ci.aarch64.AArch64.lr;
 import static jdk.vm.ci.code.ValueUtil.asAllocatableValue;
 import static jdk.vm.ci.code.ValueUtil.asRegister;
 import static org.graalvm.compiler.lir.LIRInstruction.OperandFlag.HINT;
+import static org.graalvm.compiler.lir.LIRInstruction.OperandFlag.ILLEGAL;
 import static org.graalvm.compiler.lir.LIRInstruction.OperandFlag.REG;
 
 import java.util.function.Function;
 
 import org.graalvm.compiler.asm.Label;
-import org.graalvm.compiler.core.common.NumUtil;
 import org.graalvm.compiler.asm.aarch64.AArch64Assembler;
 import org.graalvm.compiler.asm.aarch64.AArch64Assembler.ConditionFlag;
 import org.graalvm.compiler.asm.aarch64.AArch64Assembler.ExtendType;
 import org.graalvm.compiler.asm.aarch64.AArch64MacroAssembler;
 import org.graalvm.compiler.code.CompilationResult.JumpTable;
 import org.graalvm.compiler.core.common.LIRKind;
+import org.graalvm.compiler.core.common.NumUtil;
 import org.graalvm.compiler.core.common.calc.Condition;
 import org.graalvm.compiler.debug.GraalError;
 import org.graalvm.compiler.lir.ConstantValue;
@@ -46,6 +48,7 @@ import org.graalvm.compiler.lir.LIRInstructionClass;
 import org.graalvm.compiler.lir.LabelRef;
 import org.graalvm.compiler.lir.Opcode;
 import org.graalvm.compiler.lir.StandardOp;
+import org.graalvm.compiler.lir.StandardOp.BlockEndOp;
 import org.graalvm.compiler.lir.SwitchStrategy;
 import org.graalvm.compiler.lir.SwitchStrategy.BaseSwitchClosure;
 import org.graalvm.compiler.lir.Variable;
@@ -58,36 +61,21 @@ import jdk.vm.ci.meta.JavaConstant;
 import jdk.vm.ci.meta.Value;
 
 public class AArch64ControlFlow {
+    public static final class ReturnOp extends AArch64BlockEndOp implements BlockEndOp {
+        public static final LIRInstructionClass<ReturnOp> TYPE = LIRInstructionClass.create(ReturnOp.class);
+        @Use({REG, ILLEGAL}) protected Value x;
 
-    /**
-     * Compares integer register to 0 and branches if condition is true. Condition may only be equal
-     * or non-equal.
-     */
-    // TODO (das) where do we need this?
-    // public static class CompareAndBranchOp extends AArch64LIRInstruction implements
-    // StandardOp.BranchOp {
-    // private final ConditionFlag condition;
-    // private final LabelRef destination;
-    // @Use({REG}) private Value x;
-    //
-    // public CompareAndBranchOp(Condition condition, LabelRef destination, Value x) {
-    // assert condition == Condition.EQ || condition == Condition.NE;
-    // assert ARMv8.isGpKind(x.getKind());
-    // this.condition = condition == Condition.EQ ? ConditionFlag.EQ : ConditionFlag.NE;
-    // this.destination = destination;
-    // this.x = x;
-    // }
-    //
-    // @Override
-    // public void emitCode(CompilationResultBuilder crb, ARMv8MacroAssembler masm) {
-    // int size = ARMv8.bitsize(x.getKind());
-    // if (condition == ConditionFlag.EQ) {
-    // masm.cbz(size, asRegister(x), destination.label());
-    // } else {
-    // masm.cbnz(size, asRegister(x), destination.label());
-    // }
-    // }
-    // }
+        public ReturnOp(Value x) {
+            super(TYPE);
+            this.x = x;
+        }
+
+        @Override
+        public void emitCode(CompilationResultBuilder crb, AArch64MacroAssembler masm) {
+            crb.frameContext.leave(crb);
+            masm.ret(lr);
+        }
+    }
 
     public static class BranchOp extends AArch64BlockEndOp implements StandardOp.BranchOp {
         public static final LIRInstructionClass<BranchOp> TYPE = LIRInstructionClass.create(BranchOp.class);

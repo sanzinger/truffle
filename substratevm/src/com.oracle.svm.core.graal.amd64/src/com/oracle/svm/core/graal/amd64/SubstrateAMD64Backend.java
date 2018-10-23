@@ -145,6 +145,7 @@ import jdk.vm.ci.code.CompiledCode;
 import jdk.vm.ci.code.Register;
 import jdk.vm.ci.code.RegisterConfig;
 import jdk.vm.ci.code.RegisterValue;
+import jdk.vm.ci.code.StackSlot;
 import jdk.vm.ci.meta.AllocatableValue;
 import jdk.vm.ci.meta.Constant;
 import jdk.vm.ci.meta.JavaConstant;
@@ -541,6 +542,12 @@ public class SubstrateAMD64Backend extends SubstrateBackend implements LIRGenera
             append(new AMD64CGlobalDataLoadAddressOp(node.getDataInfo(), result));
             setResult(node, result);
         }
+
+        @Override
+        public Variable emitReadReturnAddress() {
+            assert FrameAccess.returnAddressSize() > 0;
+            return getLIRGeneratorTool().emitMove(StackSlot.get(getLIRGeneratorTool().getLIRKind(FrameAccess.getWordStamp()), -FrameAccess.returnAddressSize(), true));
+        }
     }
 
     protected static class SubstrateAMD64FrameContext implements FrameContext {
@@ -858,11 +865,7 @@ public class SubstrateAMD64Backend extends SubstrateBackend implements LIRGenera
     }
 
     @Override
-    public CompiledCode createCompiledCode(ResolvedJavaMethod method,
-                    CompilationRequest compilationRequest,
-                    CompilationResult compilationResult,
-                    boolean isDefault,
-                    OptionValues options) {
+    public CompiledCode createCompiledCode(ResolvedJavaMethod method, CompilationRequest compilationRequest, CompilationResult compilationResult, boolean isDefault, OptionValues options) {
         return new SubstrateCompiledCode(compilationResult);
     }
 

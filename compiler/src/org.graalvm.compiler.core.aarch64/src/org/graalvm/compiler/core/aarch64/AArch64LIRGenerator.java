@@ -48,6 +48,10 @@ import org.graalvm.compiler.lir.aarch64.AArch64AddressValue;
 import org.graalvm.compiler.lir.aarch64.AArch64ArithmeticOp;
 import org.graalvm.compiler.lir.aarch64.AArch64ArrayCompareToOp;
 import org.graalvm.compiler.lir.aarch64.AArch64ArrayEqualsOp;
+import org.graalvm.compiler.lir.aarch64.AArch64AtomicMove.AtomicReadAndAddLSEOp;
+import org.graalvm.compiler.lir.aarch64.AArch64AtomicMove.AtomicReadAndAddOp;
+import org.graalvm.compiler.lir.aarch64.AArch64AtomicMove.AtomicReadAndWriteOp;
+import org.graalvm.compiler.lir.aarch64.AArch64AtomicMove.CompareAndSwapOp;
 import org.graalvm.compiler.lir.aarch64.AArch64ByteSwapOp;
 import org.graalvm.compiler.lir.aarch64.AArch64Compare;
 import org.graalvm.compiler.lir.aarch64.AArch64ControlFlow;
@@ -58,10 +62,6 @@ import org.graalvm.compiler.lir.aarch64.AArch64ControlFlow.StrategySwitchOp;
 import org.graalvm.compiler.lir.aarch64.AArch64ControlFlow.TableSwitchOp;
 import org.graalvm.compiler.lir.aarch64.AArch64LIRFlagsVersioned;
 import org.graalvm.compiler.lir.aarch64.AArch64Move;
-import org.graalvm.compiler.lir.aarch64.AArch64AtomicMove.AtomicReadAndAddOp;
-import org.graalvm.compiler.lir.aarch64.AArch64AtomicMove.AtomicReadAndAddLSEOp;
-import org.graalvm.compiler.lir.aarch64.AArch64AtomicMove.CompareAndSwapOp;
-import org.graalvm.compiler.lir.aarch64.AArch64AtomicMove.AtomicReadAndWriteOp;
 import org.graalvm.compiler.lir.aarch64.AArch64Move.MembarOp;
 import org.graalvm.compiler.lir.aarch64.AArch64PauseOp;
 import org.graalvm.compiler.lir.aarch64.AArch64SpeculativeBarrier;
@@ -547,5 +547,15 @@ public abstract class AArch64LIRGenerator extends LIRGenerator {
     @Override
     public void emitSpeculationFence() {
         append(new AArch64SpeculativeBarrier());
+    }
+
+    @Override
+    public void emitReturn(JavaKind kind, Value input) {
+        AllocatableValue operand = Value.ILLEGAL;
+        if (input != null) {
+            operand = resultOperandFor(kind, input.getValueKind());
+            emitMove(operand, input);
+        }
+        append(new AArch64ControlFlow.ReturnOp(operand));
     }
 }
