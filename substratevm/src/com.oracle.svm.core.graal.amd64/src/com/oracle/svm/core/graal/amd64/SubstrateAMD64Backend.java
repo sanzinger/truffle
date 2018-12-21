@@ -26,6 +26,7 @@ package com.oracle.svm.core.graal.amd64;
 
 import static com.oracle.svm.core.SubstrateOptions.CompilerBackend;
 import static com.oracle.svm.core.util.VMError.shouldNotReachHere;
+
 import static com.oracle.svm.core.util.VMError.unimplemented;
 import static jdk.vm.ci.amd64.AMD64.rax;
 import static jdk.vm.ci.amd64.AMD64.rdi;
@@ -102,12 +103,14 @@ import org.graalvm.compiler.nodes.ValueNode;
 import org.graalvm.compiler.nodes.spi.NodeLIRBuilderTool;
 import org.graalvm.compiler.nodes.spi.NodeValueMap;
 import org.graalvm.compiler.options.OptionValues;
+import org.graalvm.compiler.phases.Phase;
 import org.graalvm.compiler.phases.common.AddressLoweringPhase;
 import org.graalvm.compiler.phases.util.Providers;
 import org.graalvm.nativeimage.Feature;
 import org.graalvm.nativeimage.ImageSingletons;
 import org.graalvm.nativeimage.Platform;
 import org.graalvm.nativeimage.Platforms;
+import org.graalvm.nativeimage.Feature.AfterRegistrationAccess;
 
 import com.oracle.svm.core.FrameAccess;
 import com.oracle.svm.core.SubstrateOptions;
@@ -123,6 +126,7 @@ import com.oracle.svm.core.graal.code.SubstrateCompiledCode;
 import com.oracle.svm.core.graal.code.SubstrateDataBuilder;
 import com.oracle.svm.core.graal.code.SubstrateLIRGenerator;
 import com.oracle.svm.core.graal.code.SubstrateNodeLIRBuilder;
+import com.oracle.svm.core.graal.code.aarch64.SubstrateAArch64Backend;
 import com.oracle.svm.core.graal.meta.SubstrateForeignCallLinkage;
 import com.oracle.svm.core.graal.meta.SubstrateRegisterConfig;
 import com.oracle.svm.core.graal.nodes.CGlobalDataLoadAddressNode;
@@ -858,10 +862,10 @@ public class SubstrateAMD64Backend extends SubstrateBackend implements LIRGenera
     }
 
     @Override
-    public AddressLoweringPhase.AddressLowering newAddressLowering(CodeCacheProvider codeCache) {
+    public Phase newAddressLoweringPhase(CodeCacheProvider codeCache) {
         CompressEncoding compressEncoding = ImageSingletons.lookup(CompressEncoding.class);
         SubstrateRegisterConfig registerConfig = (SubstrateRegisterConfig) codeCache.getRegisterConfig();
-        return new SubstrateAMD64AddressLowering(compressEncoding, registerConfig);
+        return new AddressLoweringPhase(new SubstrateAMD64AddressLowering(compressEncoding, registerConfig));
     }
 
     @Override

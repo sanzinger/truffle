@@ -89,7 +89,6 @@ import org.graalvm.compiler.options.OptionValues;
 import org.graalvm.compiler.phases.BasePhase;
 import org.graalvm.compiler.phases.Phase;
 import org.graalvm.compiler.phases.PhaseSuite;
-import org.graalvm.compiler.phases.common.AddressLoweringPhase;
 import org.graalvm.compiler.phases.common.CanonicalizerPhase;
 import org.graalvm.compiler.phases.common.DeoptimizationGroupingPhase;
 import org.graalvm.compiler.phases.common.ExpandLogicPhase;
@@ -153,7 +152,6 @@ import com.oracle.svm.core.c.function.CEntryPointOptions;
 import com.oracle.svm.core.config.ConfigurationValues;
 import com.oracle.svm.core.deopt.DeoptTester;
 import com.oracle.svm.core.graal.GraalConfiguration;
-import com.oracle.svm.core.graal.code.SubstrateAddressLoweringPhaseFactory;
 import com.oracle.svm.core.graal.code.SubstrateBackend;
 import com.oracle.svm.core.graal.jdk.ArraycopySnippets;
 import com.oracle.svm.core.graal.meta.RuntimeConfiguration;
@@ -1206,11 +1204,7 @@ public class NativeImageGenerator {
 
         lowTier.addBeforeLast(new OptimizeExceptionCallsPhase());
 
-        SubstrateAddressLoweringPhaseFactory addressLoweringFactory = ImageSingletons.lookup(SubstrateAddressLoweringPhaseFactory.class);
-        CompressEncoding compressEncoding = ImageSingletons.lookup(CompressEncoding.class);
-        SubstrateRegisterConfig registerConfig = (SubstrateRegisterConfig) runtimeCallProviders.getCodeCache().getRegisterConfig();
-
-        Phase addressLoweringPhase = addressLoweringFactory.newAddressLowering(compressEncoding, registerConfig);
+        Phase addressLoweringPhase = backend.newAddressLoweringPhase(runtimeCallProviders.getCodeCache());
         if (firstTier) {
             lowTier.findPhase(ExpandLogicPhase.class).add(addressLoweringPhase);
         } else {

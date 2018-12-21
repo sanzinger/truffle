@@ -68,6 +68,7 @@ import com.oracle.svm.core.SubstrateOptions;
 import com.oracle.svm.core.annotate.AutomaticFeature;
 import com.oracle.svm.core.config.ObjectLayout;
 import com.oracle.svm.core.graal.code.SubstrateCallingConvention;
+import com.oracle.svm.core.graal.code.SubstrateCallingConventionType;
 import com.oracle.svm.core.graal.code.SubstrateRegisterConfigFactory;
 import com.oracle.svm.core.graal.meta.SubstrateRegisterConfig;
 import com.oracle.svm.core.graal.meta.SubstrateRegisterConfig.ConfigKind;

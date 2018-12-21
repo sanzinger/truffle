@@ -31,7 +31,6 @@ import static jdk.vm.ci.aarch64.AArch64.sp;
 import static jdk.vm.ci.hotspot.aarch64.AArch64HotSpotRegisterConfig.fp;
 import static org.graalvm.compiler.core.common.GraalOptions.ZapStackOnMethodEntry;
 
-import org.graalvm.collections.EconomicSet;
 import org.graalvm.compiler.asm.Assembler;
 import org.graalvm.compiler.asm.aarch64.AArch64Address;
 import org.graalvm.compiler.asm.aarch64.AArch64Assembler;
@@ -93,6 +92,8 @@ import org.graalvm.compiler.nodes.StructuredGraph;
 import org.graalvm.compiler.nodes.spi.NodeLIRBuilderTool;
 import org.graalvm.compiler.nodes.spi.NodeValueMap;
 import org.graalvm.compiler.options.OptionValues;
+import org.graalvm.compiler.phases.Phase;
+import org.graalvm.compiler.phases.common.AddressLoweringByUsePhase;
 import org.graalvm.compiler.phases.tiers.SuitesProvider;
 import org.graalvm.compiler.phases.util.Providers;
 import org.graalvm.nativeimage.Feature;
@@ -105,7 +106,6 @@ import com.oracle.svm.core.SubstrateOptions;
 import com.oracle.svm.core.annotate.AutomaticFeature;
 import com.oracle.svm.core.deopt.DeoptimizedFrame;
 import com.oracle.svm.core.deopt.Deoptimizer;
-import com.oracle.svm.core.graal.amd64.SubstrateAMD64Backend;
 import com.oracle.svm.core.graal.code.SubstrateBackend;
 import com.oracle.svm.core.graal.code.SubstrateBackendFactory;
 import com.oracle.svm.core.graal.code.SubstrateCallingConventionType;
@@ -126,6 +126,7 @@ import com.oracle.svm.core.nodes.SafepointCheckNode;
 
 import jdk.vm.ci.aarch64.AArch64;
 import jdk.vm.ci.code.CallingConvention;
+import jdk.vm.ci.code.CodeCacheProvider;
 import jdk.vm.ci.code.CodeUtil;
 import jdk.vm.ci.code.CompilationRequest;
 import jdk.vm.ci.code.CompiledCode;
@@ -148,7 +149,7 @@ class SubstrateAArch64BackendFeature implements Feature {
     public void afterRegistration(AfterRegistrationAccess access) {
         ImageSingletons.add(SubstrateBackendFactory.class, new SubstrateBackendFactory() {
             @Override
-            public Backend newBackend(Providers newProviders) {
+            public SubstrateBackend newBackend(Providers newProviders) {
                 return new SubstrateAArch64Backend(newProviders);
             }
         });
@@ -559,10 +560,26 @@ public class SubstrateAArch64Backend extends SubstrateBackend implements LIRGene
 
     @Override
     public CompilationResultBuilder newCompilationResultBuilder(LIRGenerationResult lirGenResult, FrameMap frameMap, CompilationResult compilationResult, CompilationResultBuilderFactory factory) {
-        SharedMethod method = (SharedMethod) graph.method();
-        CallingConvention callingConvention = CodeUtil.getCallingConvention(getCodeCache(), method.isEntryPoint() ? SubstrateCallingConventionType.NativeCallee
-                        : SubstrateCallingConventionType.JavaCallee, method, this);
-        return new SubstrateLIRGenerationResult(compilationId, lir, frameMapBuilder, callingConvention, method);
+        Assembler masm = new AArch64MacroAssembler(getTarget());
+        SharedMethod method = ((SubstrateLIRGenerationResult) lirGenResult).getMethod();
+        Deoptimizer.StubType stubType = method.getDeoptStubType();
+        DataBuilder dataBuilder = new SubstrateDataBuilder();
+        final FrameContext frameContext;
+        if (stubType == Deoptimizer.StubType.EntryStub) {
+            frameContext = new DeoptEntryStubContext();
+        } else if (stubType == Deoptimizer.StubType.ExitStub) {
+            frameContext = new DeoptExitStubContext();
+        } else {
+            frameContext = new SubstrateAArch64FrameContext();
+        }
+        LIR lir = lirGenResult.getLIR();
+        OptionValues options = lir.getOptions();
+        DebugContext debug = lir.getDebug();
+        Register nullRegister = useLinearPointerCompression() ? getHeapBaseRegister(lirGenResult) : Register.None;
+        CompilationResultBuilder tasm = factory.createBuilder(getCodeCache(), getForeignCalls(), lirGenResult.getFrameMap(), masm, dataBuilder, frameContext, options, debug, compilationResult,
+                        nullRegister);
+        tasm.setTotalFrameSize(lirGenResult.getFrameMap().totalFrameSize());
+        return tasm;
     }
 
     protected AArch64ArithmeticLIRGenerator createArithmeticLIRGen() {
@@ -612,30 +629,6 @@ public class SubstrateAArch64Backend extends SubstrateBackend implements LIRGene
     }
 
     @Override
-    public CompilationResultBuilder newCompilationResultBuilder(LIRGenerationResult lirGenResult, FrameMap frameMap, CompilationResult compilationResult, CompilationResultBuilderFactory factory) {
-        Assembler masm = createAssembler(frameMap);
-        SharedMethod method = ((SubstrateLIRGenerationResult) lirGenResult).getMethod();
-        Deoptimizer.StubType stubType = method.getDeoptStubType();
-        DataBuilder dataBuilder = new SubstrateDataBuilder();
-        final FrameContext frameContext;
-        if (stubType == Deoptimizer.StubType.EntryStub) {
-            frameContext = new DeoptEntryStubContext();
-        } else if (stubType == Deoptimizer.StubType.ExitStub) {
-            frameContext = new DeoptExitStubContext();
-        } else {
-            frameContext = new SubstrateAArch64FrameContext();
-        }
-        LIR lir = lirGenResult.getLIR();
-        OptionValues options = lir.getOptions();
-        DebugContext debug = lir.getDebug();
-        Register nullRegister = useLinearPointerCompression() ? getHeapBaseRegister(lirGenResult) : Register.None;
-        CompilationResultBuilder tasm = factory.createBuilder(getCodeCache(), getForeignCalls(), lirGenResult.getFrameMap(), masm, dataBuilder, frameContext, options, debug, compilationResult,
-                        nullRegister);
-        tasm.setTotalFrameSize(lirGenResult.getFrameMap().totalFrameSize());
-        return tasm;
-    }
-
-    @Override
     public RegisterAllocationConfig newRegisterAllocationConfig(RegisterConfig registerConfig, String[] allocationRestrictedTo) {
         RegisterConfig registerConfigNonNull = registerConfig == null ? getCodeCache().getRegisterConfig() : registerConfig;
         return new RegisterAllocationConfig(registerConfigNonNull, allocationRestrictedTo);
@@ -679,7 +672,15 @@ public class SubstrateAArch64Backend extends SubstrateBackend implements LIRGene
     }
 
     @Override
-    public EconomicSet<Register> translateToCallerRegisters(EconomicSet<Register> calleeRegisters) {
-        return calleeRegisters;
+    public LIRGenerationResult newLIRGenerationResult(CompilationIdentifier compilationId, LIR lir, RegisterConfig registerConfig, StructuredGraph graph, Object stub) {
+        SharedMethod method = (SharedMethod) graph.method();
+        CallingConvention callingConvention = CodeUtil.getCallingConvention(getCodeCache(), method.isEntryPoint() ? SubstrateCallingConventionType.NativeCallee
+                        : SubstrateCallingConventionType.JavaCallee, method, this);
+        return new SubstrateLIRGenerationResult(compilationId, lir, newFrameMapBuilder(registerConfig), callingConvention, method);
+    }
+
+    @Override
+    public Phase newAddressLoweringPhase(CodeCacheProvider codeCache) {
+        return new AddressLoweringByUsePhase(new SubstrateAArch64AddressLowering());
     }
 }
