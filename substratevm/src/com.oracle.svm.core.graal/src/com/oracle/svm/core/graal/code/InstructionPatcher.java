@@ -81,11 +81,15 @@ public class InstructionPatcher {
         }
     }
 
-    public PatchData findPatchData(int codePos, int relative) {
-        OperandDataAnnotation operandData = operandAnnotations.get(codePos);
-        assert operandData.instructionPosition == codePos;
-
-        int offset = relative - (operandData.nextInstructionPosition - operandData.instructionPosition);
-        return new PatchData(operandData.operandPosition, operandData.operandSize, operandData.nextInstructionPosition, offset);
+    public OperandDataAnnotation findPatchData(int codePos, int relative) {
+        return operandAnnotations.get(codePos);
+// if (operandData == null) {
+// return null;
+// }
+// assert operandData.instructionPosition == codePos;
+//
+// int offset = relative - (operandData.nextInstructionPosition - operandData.instructionPosition);
+// return new PatchData(operandData.operandPosition, operandData.operandSize,
+// operandData.nextInstructionPosition, offset);
     }
 }

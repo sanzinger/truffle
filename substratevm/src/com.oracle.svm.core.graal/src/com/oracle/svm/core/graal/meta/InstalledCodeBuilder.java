@@ -441,7 +441,7 @@ public class InstalledCodeBuilder {
                 assert pcDisplacement == (int) pcDisplacement;
 
                 // Patch a PC-relative call.
-                patcher.findPatchData(call.pcOffset, (int) pcDisplacement).apply(compiledBytes);
+                patcher.findPatchData(call.pcOffset, (int) pcDisplacement).patch((int) pcDisplacement, compiledBytes);
             }
         }
         if (directTargets.size() > 0) {

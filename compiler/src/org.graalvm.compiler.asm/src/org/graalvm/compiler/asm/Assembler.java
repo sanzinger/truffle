@@ -50,6 +50,15 @@ public abstract class Assembler {
         }
     }
 
+    public abstract static class PatchAnnoation extends CodeAnnotation {
+
+        protected PatchAnnoation(int instructionStartPosition) {
+            super(instructionStartPosition);
+        }
+
+        public abstract void patch(int offset, byte[] code);
+    }
+
     public final TargetDescription target;
     private List<LabelHint> jumpDisplacementHints;
 

@@ -210,7 +210,7 @@ public abstract class AMD64BaseAssembler extends Assembler {
         }
     }
 
-    public abstract static class OperandDataAnnotation extends CodeAnnotation {
+    public abstract static class OperandDataAnnotation extends PatchAnnoation {
         /**
          * The position (bytes from the beginning of the method) of the operand.
          */
@@ -231,6 +231,18 @@ public abstract class AMD64BaseAssembler extends Assembler {
             this.operandPosition = operandPosition;
             this.operandSize = operandSize;
             this.nextInstructionPosition = nextInstructionPosition;
+        }
+
+        @Override
+        public void patch(int relative, byte[] code) {
+            int offset = relative - (nextInstructionPosition - instructionPosition);
+            int curValue = offset;
+            for (int i = 0; i < operandSize; i++) {
+                assert code[operandPosition + i] == 0;
+                code[operandPosition + i] = (byte) (curValue & 0xFF);
+                curValue = curValue >>> 8;
+            }
+            assert curValue == 0;
         }
 
         @Override

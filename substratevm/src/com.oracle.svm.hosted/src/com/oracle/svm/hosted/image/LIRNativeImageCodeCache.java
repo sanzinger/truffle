@@ -33,9 +33,11 @@ import java.util.NavigableMap;
 import java.util.Set;
 import java.util.TreeMap;
 
+import org.graalvm.compiler.asm.amd64.AMD64BaseAssembler.OperandDataAnnotation;
 import org.graalvm.compiler.code.CompilationResult;
 import org.graalvm.compiler.core.common.NumUtil;
 import org.graalvm.compiler.debug.DebugContext;
+import org.graalvm.compiler.debug.GraalError;
 import org.graalvm.compiler.debug.Indent;
 import org.graalvm.nativeimage.ImageSingletons;
 import org.graalvm.word.WordFactory;
@@ -268,7 +270,12 @@ public class LIRNativeImageCodeCache extends NativeImageCodeCache {
                     // Patch a PC-relative call.
                     // This code handles the case of section-local calls only.
                     int pcDisplacement = callTargetStart - (compStart + call.pcOffset);
-                    patcher.findPatchData(call.pcOffset, pcDisplacement).apply(compilation.getTargetCode());
+                    OperandDataAnnotation patchData = patcher.findPatchData(call.pcOffset, pcDisplacement);
+                    if (patchData != null) {
+                        patchData.patch(pcDisplacement, compilation.getTargetCode());
+                    } else {
+                        throw new GraalError("Cannot find patch data for infopoint " + infopoint);
+                    }
                 }
             }
             // ... and patch references to constant data
@@ -278,7 +285,7 @@ public class LIRNativeImageCodeCache extends NativeImageCodeCache {
                  * Constants are allocated offsets in a separate space, which can be emitted as
                  * read-only (.rodata) section.
                  */
-                InstructionPatcher.PatchData patchData = patcher.findPatchData(dataPatch.pcOffset, 0);
+                OperandDataAnnotation patchData = patcher.findPatchData(dataPatch.pcOffset, 0);
                 /*
                  * The relocation site is some offset into the instruction, which is some offset
                  * into the method, which is some offset into the text section (a.k.a. code cache).
