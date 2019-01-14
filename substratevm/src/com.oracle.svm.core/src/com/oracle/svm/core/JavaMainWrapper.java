@@ -135,7 +135,10 @@ public class JavaMainWrapper {
         JavaMainWrapper.argc = paramArgc;
         JavaMainWrapper.argv = paramArgv;
         Architecture imageArchitecture = ImageSingletons.lookup(TargetDescription.class).arch;
-        AMD64CPUFeatureAccess.verifyHostSupportsArchitecture(imageArchitecture);
+        CPUFeatureAccess cpuFeatureAccess = ImageSingletons.lookup(CPUFeatureAccess.class);
+        if (cpuFeatureAccess != null) {
+            cpuFeatureAccess.verifyHostSupportsArchitecture(imageArchitecture);
+        }
         String[] args = SubstrateUtil.getArgs(paramArgc, paramArgv);
         if (SubstrateOptions.ParseRuntimeOptions.getValue()) {
             args = RuntimeOptionParser.singleton().parse(args, DEFAULT_OPTION_PREFIX, PLUS_MINUS, true);
