@@ -111,12 +111,12 @@ public class AArch64GraphBuilderPlugins {
 
     private static void registerMathPlugins(InvocationPlugins plugins) {
         Registration r = new Registration(plugins, Math.class);
-        registerUnaryMath(r, "sin", SIN);
-        registerUnaryMath(r, "cos", COS);
-        registerUnaryMath(r, "tan", TAN);
-        registerUnaryMath(r, "exp", EXP);
-        registerUnaryMath(r, "log", LOG);
-        registerUnaryMath(r, "log10", LOG10);
+        // registerUnaryMath(r, "sin", SIN);
+        // registerUnaryMath(r, "cos", COS);
+        // registerUnaryMath(r, "tan", TAN);
+        // registerUnaryMath(r, "exp", EXP);
+        // registerUnaryMath(r, "log", LOG);
+        // registerUnaryMath(r, "log10", LOG10);
         r.register2("pow", Double.TYPE, Double.TYPE, new InvocationPlugin() {
             @Override
             public boolean apply(GraphBuilderContext b, ResolvedJavaMethod targetMethod, Receiver receiver, ValueNode x, ValueNode y) {
