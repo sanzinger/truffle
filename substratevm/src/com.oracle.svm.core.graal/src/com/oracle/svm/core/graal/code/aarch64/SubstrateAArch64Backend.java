@@ -637,8 +637,12 @@ public class SubstrateAArch64Backend extends SubstrateBackend implements LIRGene
     @Override
     public CompilationResult createJNITrampolineMethod(ResolvedJavaMethod method, CompilationIdentifier identifier, RegisterValue methodIdArg, int offset) {
         CompilationResult result = new CompilationResult(identifier);
-        AMD64Assembler asm = new AMD64Assembler(getTarget());
-        asm.jmp(new AMD64Address(methodIdArg.getRegister(), offset));
+        AArch64MacroAssembler asm = new AArch64MacroAssembler(getTarget());
+        try (ScratchRegister scratch = asm.getScratchRegister()) {
+            Register scratchRegister = scratch.getRegister();
+            asm.loadAddress(scratchRegister, AArch64Address.createUnscaledImmediateAddress(methodIdArg.getRegister(), offset), 8);
+            asm.jmp(scratchRegister);
+        }
         result.recordMark(asm.position(), SubstrateAArch64Backend.MARK_PROLOGUE_DECD_RSP);
         result.recordMark(asm.position(), SubstrateAArch64Backend.MARK_PROLOGUE_END);
         byte[] instructions = asm.close(true);
