@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -51,13 +51,13 @@ import com.oracle.svm.core.SubstrateUtil;
 import com.oracle.svm.core.amd64.AMD64CPUFeatureAccess;
 import com.oracle.svm.core.graal.code.SubstrateCompilationIdentifier;
 import com.oracle.svm.core.graal.code.SubstrateCompilationResult;
-import com.oracle.svm.core.graal.meta.InstalledCodeBuilder;
 import com.oracle.svm.core.graal.meta.RuntimeConfiguration;
 import com.oracle.svm.core.log.Log;
 import com.oracle.svm.core.meta.SharedMethod;
 import com.oracle.svm.core.option.RuntimeOptionKey;
 import com.oracle.svm.graal.meta.SubstrateInstalledCodeImpl;
 import com.oracle.svm.graal.meta.SubstrateMethod;
+import com.oracle.svm.hosted.InstalledCodeBuilder;
 
 import jdk.vm.ci.amd64.AMD64;
 import jdk.vm.ci.code.InstalledCode;

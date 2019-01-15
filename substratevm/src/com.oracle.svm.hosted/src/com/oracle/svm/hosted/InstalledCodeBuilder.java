@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,7 +22,7 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
-package com.oracle.svm.core.graal.meta;
+package com.oracle.svm.hosted;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -34,6 +34,7 @@ import java.util.Map.Entry;
 import java.util.Set;
 
 import org.graalvm.compiler.code.CompilationResult;
+import org.graalvm.compiler.code.CompilationResult.CodeAnnotation;
 import org.graalvm.compiler.core.common.NumUtil;
 import org.graalvm.compiler.debug.DebugContext;
 import org.graalvm.compiler.debug.Indent;
@@ -55,9 +56,8 @@ import com.oracle.svm.core.code.InstalledCodeObserverSupport;
 import com.oracle.svm.core.code.RuntimeMethodInfo;
 import com.oracle.svm.core.config.ConfigurationValues;
 import com.oracle.svm.core.deopt.SubstrateInstalledCode;
-import com.oracle.svm.core.graal.code.InstructionPatcher;
-import com.oracle.svm.core.graal.code.InstructionPatcher.PatchData;
 import com.oracle.svm.core.graal.code.SubstrateCompilationResult;
+import com.oracle.svm.core.graal.meta.SharedRuntimeMethod;
 import com.oracle.svm.core.heap.Heap;
 import com.oracle.svm.core.heap.NoAllocationVerifier;
 import com.oracle.svm.core.heap.ObjectReferenceVisitor;
@@ -77,7 +77,6 @@ import com.oracle.svm.core.util.VMError;
 
 import jdk.vm.ci.code.TargetDescription;
 import jdk.vm.ci.code.site.Call;
-import jdk.vm.ci.code.site.ConstantReference;
 import jdk.vm.ci.code.site.DataPatch;
 import jdk.vm.ci.code.site.DataSectionReference;
 import jdk.vm.ci.code.site.Infopoint;
@@ -285,10 +284,16 @@ public class InstalledCodeBuilder {
          */
         ObjectConstantsHolder objectConstants = new ObjectConstantsHolder(compilation);
 
-        InstructionPatcher patcher = new InstructionPatcher(compilation);
-        patchData(patcher, objectConstants);
+        // Build an index of PatchingAnnoations
+        Map<Integer, PatchingAnnotation> patches = new HashMap<>();
+        for (CodeAnnotation codeAnnotation : compilation.getAnnotations()) {
+            if (codeAnnotation instanceof PatchingAnnotation) {
+                patches.put(codeAnnotation.position, (PatchingAnnotation) codeAnnotation);
+            }
+        }
+        patchData(patches, objectConstants);
 
-        int updatedCodeSize = patchCalls(patcher);
+        int updatedCodeSize = patchCalls(patches);
         assert updatedCodeSize <= constantsOffset;
 
         // Store the compiled code
@@ -382,37 +387,44 @@ public class InstalledCodeBuilder {
         sourcePositionEncoder.install(runtimeMethodInfo);
     }
 
-    private void patchData(InstructionPatcher patcher, ObjectConstantsHolder objectConstants) {
+    private void patchData(Map<Integer, PatchingAnnotation> patcher, @SuppressWarnings("unused") ObjectConstantsHolder objectConstants) {
         for (DataPatch dataPatch : compilation.getDataPatches()) {
             if (dataPatch.reference instanceof DataSectionReference) {
                 DataSectionReference ref = (DataSectionReference) dataPatch.reference;
                 int pcDisplacement = constantsOffset + ref.getOffset() - dataPatch.pcOffset;
-                patcher.findPatchData(dataPatch.pcOffset, pcDisplacement).apply(compiledBytes);
+                // patcher.getPatching(dataPatch.pcOffset)., pcDisplacement).apply(compiledBytes);
+                patcher.get(dataPatch.pcOffset).patch(dataPatch.pcOffset, pcDisplacement, compiledBytes);
 
-            } else if (dataPatch.reference instanceof ConstantReference) {
-                ConstantReference ref = (ConstantReference) dataPatch.reference;
-                SubstrateObjectConstant refConst = (SubstrateObjectConstant) ref.getConstant();
-
-                PatchData data = patcher.findPatchData(dataPatch.pcOffset, 0);
-                objectConstants.add(data.operandPosition, refConst);
-
-                if (data.operandSize == Long.BYTES && data.operandSize > ConfigurationValues.getObjectLayout().getReferenceSize()) {
-                    /*
-                     * Some instructions use 8-byte immediates even for narrow (4-byte) compressed
-                     * references. We zero all 8 bytes and patch a narrow reference at the offset,
-                     * which results in the same 8-byte value with little-endian order.
-                     */
-                    assert ConfigurationValues.getTarget().arch.getByteOrder() == ByteOrder.LITTLE_ENDIAN : "Patching wide references requires little-endian byte order";
-                    ByteBuffer codeBuffer = ByteBuffer.wrap(compiledBytes, data.operandPosition, 8);
-                    codeBuffer.putLong(0L);
-                } else {
-                    assert data.operandSize == ConfigurationValues.getObjectLayout().getReferenceSize() : "Unsupported reference constant size: " + data.operandSize;
-                }
             }
+            // else if (dataPatch.reference instanceof ConstantReference) {
+            // ConstantReference ref = (ConstantReference) dataPatch.reference;
+            // SubstrateObjectConstant refConst = (SubstrateObjectConstant) ref.getConstant();
+            //
+            // PatchingAnnotation anno = patcher.get(dataPatch.pcOffset);
+            // // TODO FIX ME
+            // objectConstants.add(data.operandPosition, refConst);
+            //
+            // if (data.operandSize == Long.BYTES && data.operandSize >
+            // ConfigurationValues.getObjectLayout().getReferenceSize()) {
+            // /*
+            // * Some instructions use 8-byte immediates even for narrow (4-byte) compressed
+            // * references. We zero all 8 bytes and patch a narrow reference at the offset,
+            // * which results in the same 8-byte value with little-endian order.
+            // */
+            // assert ConfigurationValues.getTarget().arch.getByteOrder() == ByteOrder.LITTLE_ENDIAN
+            // : "Patching
+            // wide references requires little-endian byte order";
+            // ByteBuffer codeBuffer = ByteBuffer.wrap(compiledBytes, data.operandPosition, 8);
+            // codeBuffer.putLong(0L);
+            // } else {
+            // assert data.operandSize == ConfigurationValues.getObjectLayout().getReferenceSize() :
+            // "Unsupported reference constant size: " + data.operandSize;
+            // }
+            // }
         }
     }
 
-    private int patchCalls(InstructionPatcher patcher) {
+    private int patchCalls(Map<Integer, PatchingAnnotation> patches) {
         /*
          * Patch the direct call instructions. TODO: This is highly x64 specific. Should be
          * rewritten to generic backends.
@@ -441,7 +453,7 @@ public class InstalledCodeBuilder {
                 assert pcDisplacement == (int) pcDisplacement;
 
                 // Patch a PC-relative call.
-                patcher.findPatchData(call.pcOffset, (int) pcDisplacement).apply(compiledBytes);
+                patches.get(call.pcOffset).patch(call.pcOffset, (int) pcDisplacement, compiledBytes);
             }
         }
         if (directTargets.size() > 0) {

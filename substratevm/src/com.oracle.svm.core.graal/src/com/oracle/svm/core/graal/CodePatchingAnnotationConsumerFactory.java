@@ -22,14 +22,18 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
-package com.oracle.svm.core.graal.code;
+package com.oracle.svm.core.graal;
 
-import com.oracle.svm.core.graal.meta.SubstrateRegisterConfig.ConfigKind;
+import java.util.function.Consumer;
 
-import jdk.vm.ci.code.RegisterConfig;
-import jdk.vm.ci.code.TargetDescription;
-import jdk.vm.ci.meta.MetaAccessProvider;
+import org.graalvm.compiler.asm.Assembler.CodeAnnotation;
+import org.graalvm.compiler.code.CompilationResult;
+import org.graalvm.nativeimage.ImageSingletons;
 
-public interface SubstrateRegisterConfigFactory {
-    RegisterConfig newRegisterFactory(ConfigKind config, MetaAccessProvider metaAccess, TargetDescription target, Boolean useStackBasePointer);
+public abstract class CodePatchingAnnotationConsumerFactory {
+    public abstract Consumer<CodeAnnotation> newConsumer(CompilationResult compilationResult);
+
+    public static CodePatchingAnnotationConsumerFactory factory() {
+        return ImageSingletons.lookup(CodePatchingAnnotationConsumerFactory.class);
+    }
 }

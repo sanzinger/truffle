@@ -22,14 +22,26 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
-package com.oracle.svm.core.graal.code;
+package com.oracle.svm.hosted;
 
-import com.oracle.svm.core.graal.meta.SubstrateRegisterConfig.ConfigKind;
+import org.graalvm.compiler.code.CompilationResult.CodeAnnotation;
 
-import jdk.vm.ci.code.RegisterConfig;
-import jdk.vm.ci.code.TargetDescription;
-import jdk.vm.ci.meta.MetaAccessProvider;
+import com.oracle.svm.hosted.image.RelocatableBuffer;
 
-public interface SubstrateRegisterConfigFactory {
-    RegisterConfig newRegisterFactory(ConfigKind config, MetaAccessProvider metaAccess, TargetDescription target, Boolean useStackBasePointer);
+import jdk.vm.ci.code.site.Reference;
+
+public abstract class PatchingAnnotation extends CodeAnnotation {
+
+    protected PatchingAnnotation(int instructionStartPosition) {
+        super(instructionStartPosition);
+    }
+
+    public abstract void relocate(Reference ref, RelocatableBuffer relocs, int compStart);
+
+    public abstract void patch(int codePos, int relative, byte[] code);
+
+    @Override
+    public boolean equals(Object obj) {
+        return this == obj;
+    }
 }
