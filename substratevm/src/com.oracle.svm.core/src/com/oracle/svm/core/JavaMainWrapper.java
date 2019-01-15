@@ -56,6 +56,7 @@ import com.oracle.svm.core.amd64.AMD64CPUFeatureAccess;
 import com.oracle.svm.core.annotate.AutomaticFeature;
 import com.oracle.svm.core.c.function.CEntryPointOptions;
 import com.oracle.svm.core.c.function.CEntryPointSetup.EnterCreateIsolatePrologue;
+import com.oracle.svm.core.config.ConfigurationValues;
 import com.oracle.svm.core.jdk.RuntimeFeature;
 import com.oracle.svm.core.jdk.RuntimeSupport;
 import com.oracle.svm.core.option.RuntimeOptionParser;
@@ -66,7 +67,6 @@ import com.oracle.svm.core.util.Counter;
 import com.oracle.svm.core.util.VMError;
 
 import jdk.vm.ci.code.Architecture;
-import jdk.vm.ci.code.TargetDescription;
 
 public class JavaMainWrapper {
 
@@ -134,7 +134,8 @@ public class JavaMainWrapper {
 
         JavaMainWrapper.argc = paramArgc;
         JavaMainWrapper.argv = paramArgv;
-        Architecture imageArchitecture = ImageSingletons.lookup(TargetDescription.class).arch;
+
+        Architecture imageArchitecture = ConfigurationValues.getTarget().arch;
         AMD64CPUFeatureAccess.verifyHostSupportsArchitecture(imageArchitecture);
         String[] args = SubstrateUtil.getArgs(paramArgc, paramArgv);
         if (SubstrateOptions.ParseRuntimeOptions.getValue()) {

@@ -32,15 +32,14 @@ import java.util.Map;
 import org.graalvm.compiler.core.common.LIRKind;
 import org.graalvm.compiler.core.common.spi.ForeignCallDescriptor;
 import org.graalvm.compiler.replacements.arraycopy.ArrayCopyForeignCalls;
-import org.graalvm.nativeimage.ImageSingletons;
 import org.graalvm.nativeimage.Platform;
 import org.graalvm.nativeimage.Platforms;
 import org.graalvm.word.LocationIdentity;
 
+import com.oracle.svm.core.config.ConfigurationValues;
 import com.oracle.svm.core.snippets.SnippetRuntime.SubstrateForeignCallDescriptor;
 import com.oracle.svm.core.util.VMError;
 
-import jdk.vm.ci.code.TargetDescription;
 import jdk.vm.ci.meta.JavaKind;
 
 public class SubstrateForeignCallsProvider implements ArrayCopyForeignCalls {
@@ -87,7 +86,7 @@ public class SubstrateForeignCallsProvider implements ArrayCopyForeignCalls {
 
     @Override
     public LIRKind getValueKind(JavaKind javaKind) {
-        return LIRKind.fromJavaKind(ImageSingletons.lookup(TargetDescription.class).arch, javaKind);
+        return LIRKind.fromJavaKind(ConfigurationValues.getTarget().arch, javaKind);
     }
 
     @Override
