@@ -22,7 +22,9 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
-package com.oracle.svm.hosted;
+package com.oracle.svm.core.graal.meta;
+
+import static com.oracle.svm.core.util.VMError.shouldNotReachHere;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -56,8 +58,8 @@ import com.oracle.svm.core.code.InstalledCodeObserverSupport;
 import com.oracle.svm.core.code.RuntimeMethodInfo;
 import com.oracle.svm.core.config.ConfigurationValues;
 import com.oracle.svm.core.deopt.SubstrateInstalledCode;
+import com.oracle.svm.core.graal.code.NativeImagePatcher;
 import com.oracle.svm.core.graal.code.SubstrateCompilationResult;
-import com.oracle.svm.core.graal.meta.SharedRuntimeMethod;
 import com.oracle.svm.core.heap.Heap;
 import com.oracle.svm.core.heap.NoAllocationVerifier;
 import com.oracle.svm.core.heap.ObjectReferenceVisitor;
@@ -77,6 +79,7 @@ import com.oracle.svm.core.util.VMError;
 
 import jdk.vm.ci.code.TargetDescription;
 import jdk.vm.ci.code.site.Call;
+import jdk.vm.ci.code.site.ConstantReference;
 import jdk.vm.ci.code.site.DataPatch;
 import jdk.vm.ci.code.site.DataSectionReference;
 import jdk.vm.ci.code.site.Infopoint;
@@ -190,7 +193,6 @@ public class InstalledCodeBuilder {
             int tmpMemorySize = tmpConstantsOffset + constantsSize;
 
             // Allocate executable memory. It contains the compiled code and the constants
-            //
             code = allocateOSMemory(WordFactory.unsigned(tmpMemorySize), true);
 
             /*
@@ -251,6 +253,7 @@ public class InstalledCodeBuilder {
     static class ObjectConstantsHolder {
         final SubstrateReferenceMap referenceMap;
         final int[] offsets;
+        final NativeImagePatcher[] patchers;
         final Object[] values;
         int count;
 
@@ -259,21 +262,50 @@ public class InstalledCodeBuilder {
             int maxDataRefs = compilation.getDataSection().getSectionSize() / ConfigurationValues.getObjectLayout().getReferenceSize();
             int maxCodeRefs = compilation.getDataPatches().size();
             offsets = new int[maxDataRefs + maxCodeRefs];
+            patchers = new NativeImagePatcher[offsets.length];
             values = new Object[offsets.length];
             referenceMap = new SubstrateReferenceMap();
         }
 
-        void add(int offset, SubstrateObjectConstant constant) {
+        void add(NativeImagePatcher patchingAnnotation, SubstrateObjectConstant constant) {
             assert constant.isCompressed() == ReferenceAccess.singleton().haveCompressedReferences() : "Object reference constants in code must be compressed";
-            offsets[count] = offset;
+            patchers[count] = patchingAnnotation;
             values[count] = KnownIntrinsics.convertUnknownValue(constant.getObject(), Object.class);
-            referenceMap.markReferenceAtOffset(offset, true);
+            referenceMap.markReferenceAtOffset(patchingAnnotation.getPosition(), true);
             count++;
         }
     }
 
     public void install() {
         this.installOperation();
+    }
+
+    private static class DataSectionPatcher implements NativeImagePatcher {
+        private final int position;
+
+        DataSectionPatcher(int position) {
+            this.position = position;
+        }
+
+        @Uninterruptible(reason = "The patcher is intended to work with raw pointers")
+        @Override
+        public void patch(int codePos, int relative, byte[] code) {
+            shouldNotReachHere("Datasection can only be patched with an VM constant");
+        }
+
+        @Uninterruptible(reason = "The patcher is intended to work with raw pointers")
+        @Override
+        public void patchData(Pointer pointer, Object object) {
+            boolean compressed = ReferenceAccess.singleton().haveCompressedReferences();
+            Pointer address = pointer.add(position);
+            ReferenceAccess.singleton().writeObjectAt(address, object, compressed);
+        }
+
+        @Uninterruptible(reason = ".")
+        @Override
+        public int getPosition() {
+            return position;
+        }
     }
 
     @SuppressWarnings("try")
@@ -285,10 +317,10 @@ public class InstalledCodeBuilder {
         ObjectConstantsHolder objectConstants = new ObjectConstantsHolder(compilation);
 
         // Build an index of PatchingAnnoations
-        Map<Integer, PatchingAnnotation> patches = new HashMap<>();
+        Map<Integer, NativeImagePatcher> patches = new HashMap<>();
         for (CodeAnnotation codeAnnotation : compilation.getAnnotations()) {
-            if (codeAnnotation instanceof PatchingAnnotation) {
-                patches.put(codeAnnotation.position, (PatchingAnnotation) codeAnnotation);
+            if (codeAnnotation instanceof NativeImagePatcher) {
+                patches.put(codeAnnotation.position, (NativeImagePatcher) codeAnnotation);
             }
         }
         patchData(patches, objectConstants);
@@ -304,7 +336,7 @@ public class InstalledCodeBuilder {
         /* Write primitive constants to the buffer, record object constants with offsets */
         ByteBuffer constantsBuffer = CTypeConversion.asByteBuffer(code.add(constantsOffset), compilation.getDataSection().getSectionSize());
         compilation.getDataSection().buildDataSection(constantsBuffer, (position, constant) -> {
-            objectConstants.add(constantsOffset + position, (SubstrateObjectConstant) constant);
+            objectConstants.add(new DataSectionPatcher(constantsOffset + position), (SubstrateObjectConstant) constant);
         });
 
         // Open the PinnedAllocator for the meta-information.
@@ -366,10 +398,8 @@ public class InstalledCodeBuilder {
 
     @Uninterruptible(reason = "Operates on raw pointers to objects")
     private void writeObjectConstantsToCode(ObjectConstantsHolder objectConstants) {
-        boolean compressed = ReferenceAccess.singleton().haveCompressedReferences();
         for (int i = 0; i < objectConstants.count; i++) {
-            Pointer address = code.add(objectConstants.offsets[i]);
-            ReferenceAccess.singleton().writeObjectAt(address, objectConstants.values[i], compressed);
+            objectConstants.patchers[i].patchData(code, objectConstants.values[i]);
         }
         /* From now on the constantsWalker will operate on the constants area. */
         constantsWalker.pointerMapValid = true;
@@ -387,44 +417,22 @@ public class InstalledCodeBuilder {
         sourcePositionEncoder.install(runtimeMethodInfo);
     }
 
-    private void patchData(Map<Integer, PatchingAnnotation> patcher, @SuppressWarnings("unused") ObjectConstantsHolder objectConstants) {
+    private void patchData(Map<Integer, NativeImagePatcher> patcher, @SuppressWarnings("unused") ObjectConstantsHolder objectConstants) {
         for (DataPatch dataPatch : compilation.getDataPatches()) {
+            NativeImagePatcher patch = patcher.get(dataPatch.pcOffset);
             if (dataPatch.reference instanceof DataSectionReference) {
                 DataSectionReference ref = (DataSectionReference) dataPatch.reference;
                 int pcDisplacement = constantsOffset + ref.getOffset() - dataPatch.pcOffset;
-                // patcher.getPatching(dataPatch.pcOffset)., pcDisplacement).apply(compiledBytes);
-                patcher.get(dataPatch.pcOffset).patch(dataPatch.pcOffset, pcDisplacement, compiledBytes);
-
+                patch.patch(dataPatch.pcOffset, pcDisplacement, compiledBytes);
+            } else if (dataPatch.reference instanceof ConstantReference) {
+                ConstantReference ref = (ConstantReference) dataPatch.reference;
+                SubstrateObjectConstant refConst = (SubstrateObjectConstant) ref.getConstant();
+                objectConstants.add(patch, refConst);
             }
-            // else if (dataPatch.reference instanceof ConstantReference) {
-            // ConstantReference ref = (ConstantReference) dataPatch.reference;
-            // SubstrateObjectConstant refConst = (SubstrateObjectConstant) ref.getConstant();
-            //
-            // PatchingAnnotation anno = patcher.get(dataPatch.pcOffset);
-            // // TODO FIX ME
-            // objectConstants.add(data.operandPosition, refConst);
-            //
-            // if (data.operandSize == Long.BYTES && data.operandSize >
-            // ConfigurationValues.getObjectLayout().getReferenceSize()) {
-            // /*
-            // * Some instructions use 8-byte immediates even for narrow (4-byte) compressed
-            // * references. We zero all 8 bytes and patch a narrow reference at the offset,
-            // * which results in the same 8-byte value with little-endian order.
-            // */
-            // assert ConfigurationValues.getTarget().arch.getByteOrder() == ByteOrder.LITTLE_ENDIAN
-            // : "Patching
-            // wide references requires little-endian byte order";
-            // ByteBuffer codeBuffer = ByteBuffer.wrap(compiledBytes, data.operandPosition, 8);
-            // codeBuffer.putLong(0L);
-            // } else {
-            // assert data.operandSize == ConfigurationValues.getObjectLayout().getReferenceSize() :
-            // "Unsupported reference constant size: " + data.operandSize;
-            // }
-            // }
         }
     }
 
-    private int patchCalls(Map<Integer, PatchingAnnotation> patches) {
+    private int patchCalls(Map<Integer, NativeImagePatcher> patches) {
         /*
          * Patch the direct call instructions. TODO: This is highly x64 specific. Should be
          * rewritten to generic backends.

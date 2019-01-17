@@ -22,26 +22,27 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
-package com.oracle.svm.hosted;
+package com.oracle.svm.core.graal.code;
 
-import org.graalvm.compiler.code.CompilationResult.CodeAnnotation;
+import java.util.function.Consumer;
 
-import com.oracle.svm.hosted.image.RelocatableBuffer;
+import org.graalvm.compiler.asm.Assembler.CodeAnnotation;
+import org.graalvm.compiler.code.CompilationResult;
+import org.graalvm.nativeimage.ImageSingletons;
 
-import jdk.vm.ci.code.site.Reference;
+public abstract class PatchConsumerFactory {
 
-public abstract class PatchingAnnotation extends CodeAnnotation {
-
-    protected PatchingAnnotation(int instructionStartPosition) {
-        super(instructionStartPosition);
+    public abstract static class HostedPatchConsumerFactory extends PatchConsumerFactory {
+        public static HostedPatchConsumerFactory factory() {
+            return ImageSingletons.lookup(HostedPatchConsumerFactory.class);
+        }
     }
 
-    public abstract void relocate(Reference ref, RelocatableBuffer relocs, int compStart);
-
-    public abstract void patch(int codePos, int relative, byte[] code);
-
-    @Override
-    public boolean equals(Object obj) {
-        return this == obj;
+    public abstract static class NativePatchConsumerFactory extends PatchConsumerFactory {
+        public static NativePatchConsumerFactory factory() {
+            return ImageSingletons.lookup(NativePatchConsumerFactory.class);
+        }
     }
+
+    public abstract Consumer<CodeAnnotation> newConsumer(CompilationResult compilationResult);
 }

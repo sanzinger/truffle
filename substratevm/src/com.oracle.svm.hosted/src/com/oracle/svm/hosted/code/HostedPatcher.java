@@ -22,18 +22,23 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
-package com.oracle.svm.core.graal;
+package com.oracle.svm.hosted.code;
 
-import java.util.function.Consumer;
+import com.oracle.svm.hosted.image.RelocatableBuffer;
 
-import org.graalvm.compiler.asm.Assembler.CodeAnnotation;
-import org.graalvm.compiler.code.CompilationResult;
-import org.graalvm.nativeimage.ImageSingletons;
+import jdk.vm.ci.code.site.Reference;
 
-public abstract class CodePatchingAnnotationConsumerFactory {
-    public abstract Consumer<CodeAnnotation> newConsumer(CompilationResult compilationResult);
+/**
+ * Patcher used when building native images (Hosted mode).
+ */
+interface HostedPatcher {
+    /**
+     * Create relocation for the binary file.
+     */
+    void relocate(Reference ref, RelocatableBuffer relocs, int compStart);
 
-    public static CodePatchingAnnotationConsumerFactory factory() {
-        return ImageSingletons.lookup(CodePatchingAnnotationConsumerFactory.class);
-    }
+    /**
+     * Patch the code buffer.
+     */
+    void patch(int codePos, int relative, byte[] code);
 }

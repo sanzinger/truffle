@@ -1,6 +1,5 @@
 /*
- * Copyright (c) 2019, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2019, Red Hat Inc. All rights reserved.
+ * Copyright (c) 2019, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,25 +22,76 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
-package com.oracle.svm.hosted.amd64;
+package com.oracle.svm.hosted.code.amd64;
+
+import java.util.function.Consumer;
+
+import org.graalvm.compiler.asm.Assembler.CodeAnnotation;
+import org.graalvm.compiler.asm.amd64.AMD64BaseAssembler.OperandDataAnnotation;
+import org.graalvm.compiler.code.CompilationResult;
+import org.graalvm.nativeimage.Feature;
+import org.graalvm.nativeimage.ImageSingletons;
+import org.graalvm.nativeimage.Platform;
+import org.graalvm.nativeimage.Platforms;
 
 import com.oracle.svm.core.SubstrateOptions;
+import com.oracle.svm.core.annotate.AutomaticFeature;
+import com.oracle.svm.core.annotate.Uninterruptible;
 import com.oracle.svm.core.graal.code.CGlobalDataReference;
+import com.oracle.svm.core.graal.code.PatchConsumerFactory;
 import com.oracle.svm.core.util.VMError;
+import com.oracle.svm.hosted.code.HostedPatcher;
+import com.oracle.svm.hosted.image.RelocatableBuffer;
+
 import jdk.vm.ci.code.site.ConstantReference;
 import jdk.vm.ci.code.site.DataSectionReference;
 import jdk.vm.ci.code.site.Reference;
-import org.graalvm.compiler.asm.amd64.AMD64BaseAssembler.OperandDataAnnotation;
 
-import com.oracle.svm.hosted.PatchingAnnotation;
-import com.oracle.svm.hosted.image.RelocatableBuffer;
+@AutomaticFeature
+@Platforms({Platform.AMD64.class})
+class AMD64HostedPatcherFeature implements Feature {
+    @Override
+    public void afterRegistration(AfterRegistrationAccess access) {
+        ImageSingletons.add(PatchConsumerFactory.HostedPatchConsumerFactory.class, new PatchConsumerFactory.HostedPatchConsumerFactory() {
+            @Override
+            public Consumer<CodeAnnotation> newConsumer(CompilationResult compilationResult) {
+                return new Consumer<CodeAnnotation>() {
+                    @Override
+                    public void accept(CodeAnnotation annotation) {
+                        if (annotation instanceof OperandDataAnnotation) {
+                            compilationResult.addAnnotation(new AMD64HostedPatcher(annotation.instructionPosition, (OperandDataAnnotation) annotation));
+                        }
+                    }
+                };
+            }
+        });
+    }
+}
 
-public class AMD64PatchingAnnotation extends PatchingAnnotation {
+public class AMD64HostedPatcher extends CompilationResult.CodeAnnotation implements HostedPatcher {
     private final OperandDataAnnotation annotation;
 
-    public AMD64PatchingAnnotation(int instructionStartPosition, OperandDataAnnotation annotation) {
+    public AMD64HostedPatcher(int instructionStartPosition, OperandDataAnnotation annotation) {
         super(instructionStartPosition);
         this.annotation = annotation;
+    }
+
+    @Uninterruptible(reason = ".")
+    @Override
+    public void patch(int codePos, int relative, byte[] code) {
+        int curValue = relative - (annotation.nextInstructionPosition - annotation.instructionPosition);
+
+        for (int i = 0; i < annotation.operandSize; i++) {
+            assert code[annotation.operandPosition + i] == 0;
+            code[annotation.operandPosition + i] = (byte) (curValue & 0xFF);
+            curValue = curValue >>> 8;
+        }
+        assert curValue == 0;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        return obj == this;
     }
 
     @Override
@@ -67,18 +117,5 @@ public class AMD64PatchingAnnotation extends PatchingAnnotation {
         } else {
             throw VMError.shouldNotReachHere("Unknown type of reference in code");
         }
-
-    }
-
-    @Override
-    public void patch(int codePos, int relative, byte[] code) {
-        int curValue = relative - (annotation.nextInstructionPosition - annotation.instructionPosition);
-
-        for (int i = 0; i < annotation.operandSize; i++) {
-            assert code[annotation.operandPosition + i] == 0;
-            code[annotation.operandPosition + i] = (byte) (curValue & 0xFF);
-            curValue = curValue >>> 8;
-        }
-        assert curValue == 0;
     }
 }

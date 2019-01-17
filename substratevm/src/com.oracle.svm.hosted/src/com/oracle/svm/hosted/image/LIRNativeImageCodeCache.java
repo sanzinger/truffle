@@ -37,7 +37,7 @@ import org.graalvm.compiler.debug.Indent;
 import org.graalvm.word.WordFactory;
 
 import com.oracle.objectfile.ObjectFile;
-import com.oracle.svm.hosted.PatchingAnnotation;
+import com.oracle.svm.hosted.code.HostedPatcher;
 import com.oracle.svm.hosted.image.NativeBootImage.NativeTextSectionImpl;
 import com.oracle.svm.hosted.meta.HostedMethod;
 import com.oracle.svm.hosted.meta.MethodPointer;
@@ -134,10 +134,10 @@ public class LIRNativeImageCodeCache extends NativeImageCodeCache {
             int compStart = method.getCodeAddressOffset();
 
             // Build an index of PatchingAnnoations
-            Map<Integer, PatchingAnnotation> patches = new HashMap<>();
+            Map<Integer, HostedPatcher> patches = new HashMap<>();
             for (CodeAnnotation codeAnnotation : compilation.getAnnotations()) {
-                if (codeAnnotation instanceof PatchingAnnotation) {
-                    patches.put(codeAnnotation.position, (PatchingAnnotation) codeAnnotation);
+                if (codeAnnotation instanceof HostedPatcher) {
+                    patches.put(codeAnnotation.position, (HostedPatcher) codeAnnotation);
                 }
             }
             // ... patch direct call sites.

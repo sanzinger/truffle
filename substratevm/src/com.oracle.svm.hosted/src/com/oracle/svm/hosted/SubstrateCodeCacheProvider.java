@@ -33,6 +33,7 @@ import org.graalvm.nativeimage.Platforms;
 
 import com.oracle.svm.core.deopt.SubstrateInstalledCode;
 import com.oracle.svm.core.graal.code.SubstrateCompiledCode;
+import com.oracle.svm.core.graal.meta.InstalledCodeBuilder;
 import com.oracle.svm.core.graal.meta.SharedRuntimeMethod;
 import com.oracle.svm.core.util.VMError;
 

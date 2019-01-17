@@ -36,9 +36,7 @@ import static jdk.vm.ci.code.ValueUtil.isRegister;
 import static org.graalvm.compiler.lir.LIRValueUtil.asConstantValue;
 
 import java.util.Collection;
-import java.util.function.Consumer;
 
-import org.graalvm.compiler.asm.Assembler.CodeAnnotation;
 import org.graalvm.compiler.asm.amd64.AMD64Address;
 import org.graalvm.compiler.asm.amd64.AMD64Address.Scale;
 import org.graalvm.compiler.asm.amd64.AMD64Assembler;
@@ -112,11 +110,12 @@ import org.graalvm.nativeimage.Platforms;
 
 import com.oracle.svm.core.FrameAccess;
 import com.oracle.svm.core.SubstrateOptions;
+import com.oracle.svm.core.SubstrateUtil;
 import com.oracle.svm.core.annotate.AutomaticFeature;
 import com.oracle.svm.core.config.ConfigurationValues;
 import com.oracle.svm.core.deopt.DeoptimizedFrame;
 import com.oracle.svm.core.deopt.Deoptimizer;
-import com.oracle.svm.core.graal.CodePatchingAnnotationConsumerFactory;
+import com.oracle.svm.core.graal.code.PatchConsumerFactory;
 import com.oracle.svm.core.graal.code.SubstrateBackend;
 import com.oracle.svm.core.graal.code.SubstrateBackendFactory;
 import com.oracle.svm.core.graal.code.SubstrateCallingConvention;
@@ -827,8 +826,13 @@ public class SubstrateAMD64Backend extends SubstrateBackend implements LIRGenera
     @Override
     public CompilationResultBuilder newCompilationResultBuilder(LIRGenerationResult lirGenResult, FrameMap frameMap, CompilationResult compilationResult, CompilationResultBuilderFactory factory) {
         AMD64MacroAssembler masm = new AMD64MacroAssembler(getTarget());
-        Consumer<CodeAnnotation> consumer = CodePatchingAnnotationConsumerFactory.factory().newConsumer(compilationResult);
-        masm.setCodePatchingAnnotationConsumer(consumer);
+        PatchConsumerFactory patchConsumerFactory;
+        if (SubstrateUtil.HOSTED) {
+            patchConsumerFactory = PatchConsumerFactory.HostedPatchConsumerFactory.factory();
+        } else {
+            patchConsumerFactory = PatchConsumerFactory.NativePatchConsumerFactory.factory();
+        }
+        masm.setCodePatchingAnnotationConsumer(patchConsumerFactory.newConsumer(compilationResult));
         SharedMethod method = ((SubstrateLIRGenerationResult) lirGenResult).getMethod();
         Deoptimizer.StubType stubType = method.getDeoptStubType();
         DataBuilder dataBuilder = new SubstrateDataBuilder();
