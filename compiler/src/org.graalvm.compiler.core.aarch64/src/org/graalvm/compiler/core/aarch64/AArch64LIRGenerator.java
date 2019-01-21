@@ -38,6 +38,7 @@ import org.graalvm.compiler.core.common.LIRKind;
 import org.graalvm.compiler.core.common.calc.Condition;
 import org.graalvm.compiler.core.common.spi.LIRKindTool;
 import org.graalvm.compiler.debug.GraalError;
+import org.graalvm.compiler.lir.ConstantValue;
 import org.graalvm.compiler.lir.LIRFrameState;
 import org.graalvm.compiler.lir.LIRValueUtil;
 import org.graalvm.compiler.lir.LabelRef;
@@ -75,6 +76,7 @@ import jdk.vm.ci.aarch64.AArch64Kind;
 import jdk.vm.ci.code.CallingConvention;
 import jdk.vm.ci.code.RegisterValue;
 import jdk.vm.ci.meta.AllocatableValue;
+import jdk.vm.ci.meta.Constant;
 import jdk.vm.ci.meta.JavaConstant;
 import jdk.vm.ci.meta.JavaKind;
 import jdk.vm.ci.meta.PlatformKind;
@@ -164,7 +166,7 @@ public abstract class AArch64LIRGenerator extends LIRGenerator {
     public Variable emitValueCompareAndSwap(LIRKind accessKind, Value address, Value expectedValue, Value newValue) {
         Variable result = newVariable(newValue.getValueKind());
         Variable scratch = newVariable(LIRKind.value(AArch64Kind.WORD));
-        append(new CompareAndSwapOp(result, loadNonCompareConst(expectedValue), loadReg(newValue), asAllocatable(address), scratch));
+        append(new CompareAndSwapOp(result, loadReg(expectedValue), loadReg(newValue), asAllocatable(address), scratch));
         return result;
     }
 
@@ -239,6 +241,10 @@ public abstract class AArch64LIRGenerator extends LIRGenerator {
      */
     @Override
     public Variable emitConditionalMove(PlatformKind cmpKind, Value left, Value right, Condition cond, boolean unorderedIsTrue, Value trueValue, Value falseValue) {
+        AArch64ArithmeticLIRGenerator arithLir = ((AArch64ArithmeticLIRGenerator) arithmeticLIRGen);
+        if (isJavaConstant(right) && arithLir.mustReplaceNullWithNullRegister((asJavaConstant(right)))) {
+            right = arithLir.getNullRegisterValue();
+        }
         boolean mirrored = emitCompare(cmpKind, left, right, cond, unorderedIsTrue);
         Condition finalCondition = mirrored ? cond.mirror() : cond;
         boolean finalUnorderedIsTrue = mirrored ? !unorderedIsTrue : unorderedIsTrue;
@@ -261,9 +267,16 @@ public abstract class AArch64LIRGenerator extends LIRGenerator {
         if (cond == Condition.EQ) {
             // emit cbz instruction for IsNullNode.
             assert !LIRValueUtil.isNullConstant(left) : "emitNullCheckBranch()'s null input should be in right.";
+            AArch64ArithmeticLIRGenerator arithLir = ((AArch64ArithmeticLIRGenerator) arithmeticLIRGen);
             if (LIRValueUtil.isNullConstant(right)) {
-                append(new CompareBranchZeroOp(asAllocatable(left), trueDestination, falseDestination, trueDestinationProbability));
-                return;
+                JavaConstant rightConstant = asJavaConstant(right);
+                if (arithLir.mustReplaceNullWithNullRegister(rightConstant)) {
+                    right = arithLir.getNullRegisterValue();
+                } else {
+                    append(new CompareBranchZeroOp(asAllocatable(left), trueDestination, falseDestination,
+                                    trueDestinationProbability));
+                    return;
+                }
             }
 
             // emit cbz instruction for IntegerEquals when any of the inputs is zero.

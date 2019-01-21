@@ -53,8 +53,9 @@ public class AArch64Compare {
 
         public CompareOp(Value x, Value y) {
             super(TYPE);
-            assert ((AArch64Kind) x.getPlatformKind()).isInteger() && ((AArch64Kind) y.getPlatformKind()).isInteger();
-            assert x.getPlatformKind() == y.getPlatformKind();
+// assert ((AArch64Kind) x.getPlatformKind()).isInteger() && ((AArch64Kind)
+// y.getPlatformKind()).isInteger();
+// assert x.getPlatformKind() == y.getPlatformKind();
             this.x = x;
             this.y = y;
         }

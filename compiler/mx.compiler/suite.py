@@ -240,6 +240,14 @@ suite = {
               "classifier": "linux-x86_64"
             },
           },
+          "aarch64": {
+            "sha1": "8cbf21dee84e3291462c74d5b2ad7c2cf6ff82b6",
+            "maven": {
+              "groupId" : "org.bytedeco.javacpp-presets",
+              "artifactId" : "llvm",
+              "version" : "6.0.1-1.4.2",
+            },
+          }
         },
         "darwin": {
           "amd64": {
