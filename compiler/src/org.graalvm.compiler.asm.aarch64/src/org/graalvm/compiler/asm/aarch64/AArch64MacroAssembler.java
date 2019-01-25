@@ -358,13 +358,17 @@ public class AArch64MacroAssembler extends AArch64Assembler {
         assert !firstMove;
     }
 
+    public void mov(Register dst, long imm) {
+        mov(dst, imm, false);
+    }
+
     /**
      * Loads immediate into register.
      *
      * @param dst general purpose register. May not be null, zero-register or stackpointer.
      * @param imm immediate loaded into register.
      */
-    public void mov(Register dst, long imm) {
+    public void mov(Register dst, long imm, boolean annotateImm) {
         assert dst.getRegisterCategory().equals(CPU);
         if (imm == 0L) {
             movx(dst, zr);
@@ -379,6 +383,10 @@ public class AArch64MacroAssembler extends AArch64Assembler {
             sxt(64, 32, dst, dst);
         } else {
             mov64(dst, imm);
+        }
+
+        if (annotateImm && codePatchingAnnotationConsumer != null) {
+            // TODO write this
         }
     }
 
