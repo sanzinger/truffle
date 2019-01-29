@@ -87,7 +87,7 @@ public class AArch64HostedPatcher extends CompilationResult.CodeAnnotation imple
                 for ( int j = 0 ; j < bitsRemaining ; ++j ) {
                     mask |= ( 1 << j );
                 }
-                code[annotation.instructionPosition + i] = (byte) ( ( (byte) (curValue & mask) ) | ( code[annotation.instructionPosition & ~mask]) );
+                code[annotation.instructionPosition + i] = (byte) (((curValue & mask)  | (code[annotation.instructionPosition] & ~mask) ) & 0xFF);
             }
             curValue = curValue >>> 8;
         }
