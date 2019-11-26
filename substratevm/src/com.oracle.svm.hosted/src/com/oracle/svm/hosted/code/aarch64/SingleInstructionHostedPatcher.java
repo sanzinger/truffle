@@ -91,36 +91,7 @@ public class SingleInstructionHostedPatcher extends CompilationResult.CodeAnnota
     public void patch(int codePos, int relative, byte[] code) {
         int curValue = relative;
         curValue = curValue >> annotation.shift;
-
-        int bitsRemaining = annotation.operandSizeBits;
-        int offsetRemaining = annotation.offsetBits;
-
-        for (int i = 0; i < 4; ++i) {
-            if (offsetRemaining >= 8) {
-                offsetRemaining -= 8;
-                continue;
-            }
-
-            // non-zero bits set
-            int mask = 0;
-            for (int j = 0; j < 8; ++j) {
-                if (j >= offsetRemaining) {
-                    mask |= (1 << j);
-                    --bitsRemaining;
-                }
-                if (bitsRemaining == 0) {
-                    break;
-                }
-            }
-
-            byte patchTarget = code[annotation.instructionPosition + i];
-            byte patch = (byte) ((((byte) (curValue & 0xFF)) & mask) << offsetRemaining);
-            byte retainedPatchTarget = (byte) (patchTarget & (~mask << offsetRemaining));
-            patchTarget = (byte) (retainedPatchTarget | patch);
-            code[annotation.instructionPosition + i] = patchTarget;
-            curValue = curValue >>> (8 - offsetRemaining);
-            offsetRemaining = 0;
-        }
+        annotation.patch(codePos, curValue, code);
     }
 
     @Override
@@ -212,24 +183,7 @@ class MovSequenceHostedPatcher extends CompilationResult.CodeAnnotation implemen
     @Uninterruptible(reason = ".")
     @Override
     public void patch(int codePos, int relative, byte[] code) {
-        int curValue = relative - (4 * annotation.numInstrs); // n 32-bit instrs to patch n 16-bit
-                                                              // movs
-
-        int bitsRemaining = annotation.numInstrs * 8;
-
-        for (int i = 0; i < 4 * annotation.numInstrs; i = i + 4) {
-            if (bitsRemaining >= 8) {
-                code[annotation.instructionPosition + i] = (byte) (curValue & 0xFF);
-                bitsRemaining -= 8;
-            } else {
-                int mask = 0;
-                for (int j = 0; j < bitsRemaining; ++j) {
-                    mask |= (1 << j);
-                }
-                code[annotation.instructionPosition + i] = (byte) (((byte) (curValue & mask)) | (code[annotation.instructionPosition] & ~mask));
-            }
-            curValue = curValue >>> 8;
-        }
+        throw VMError.unimplemented();
     }
 
     @Override

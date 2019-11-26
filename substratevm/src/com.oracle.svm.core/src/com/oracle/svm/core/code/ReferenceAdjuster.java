@@ -27,8 +27,8 @@ package com.oracle.svm.core.code;
 import java.nio.ByteOrder;
 
 import org.graalvm.compiler.api.replacements.Fold;
+import org.graalvm.compiler.asm.Assembler.Patcher;
 import org.graalvm.word.Pointer;
-import org.graalvm.word.PointerBase;
 
 import com.oracle.svm.core.annotate.Uninterruptible;
 import com.oracle.svm.core.c.NonmovableArrays;
@@ -50,7 +50,7 @@ public interface ReferenceAdjuster {
     <T> void setObjectInArray(NonmovableObjectArray<T> array, int index, T object);
 
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
-    void setConstantTargetAt(PointerBase address, int length, SubstrateObjectConstant constant);
+    void setConstantTargetAt(Pointer address, int length, boolean compressed, Patcher patcher, SubstrateObjectConstant constant);
 
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     default <T extends Constant> NonmovableObjectArray<Object> copyOfObjectConstantArray(T[] constants) {

@@ -132,6 +132,7 @@ import java.util.Arrays;
 
 import org.graalvm.compiler.asm.Assembler;
 import org.graalvm.compiler.asm.aarch64.AArch64Address.AddressingMode;
+import org.graalvm.compiler.asm.aarch64.AArch64MacroAssembler.MacroInstruction;
 import org.graalvm.compiler.core.common.NumUtil;
 import org.graalvm.compiler.debug.GraalError;
 
@@ -1073,10 +1074,10 @@ public abstract class AArch64Assembler extends Assembler {
         int imm = (imm28 & NumUtil.getNbitNumberInt(28)) >> 2;
         int instrEncoding = instr.encoding | UnconditionalBranchImmOp;
         if (pos == -1) {
-            annotatePatchingImmediate(position(), instr, 26, 0, 2);
+            annotatePatchingImmediate(position(), instr, AArch64BitSpec.imm26Patcher, 2);
             emitInt(instrEncoding | imm);
         } else {
-            annotatePatchingImmediate(pos, instr, 26, 0, 2);
+            annotatePatchingImmediate(pos, instr, AArch64BitSpec.imm26Patcher, 2);
             emitInt(instrEncoding | imm, pos);
         }
     }
@@ -1258,6 +1259,17 @@ public abstract class AArch64Assembler extends Assembler {
         loadStoreInstruction(STR, rt, address, General64, transferSize);
     }
 
+    public static class AArch64BitSpec {
+        public static final BitSpec imm9 = new ContinousBitSpec(20, 12, true, "imm9");
+        public static final Patcher imm9Patcher = Patcher.from(imm9);
+        public static final BitSpec imm12 = new ContinousBitSpec(21, 10, true, "imm12");
+        public static final Patcher imm12Patcher = Patcher.from(imm12);
+        public static final BitSpec imm19 = new ContinousBitSpec(23, 5, true, "imm19");
+        public static final Patcher imm19Patcher = Patcher.from(imm19);
+        public static final BitSpec imm26 = new ContinousBitSpec(25, 0, true, "imm26");
+        public static final Patcher imm26Patcher = Patcher.from(imm26);
+    }
+
     private void loadStoreInstruction(Instruction instr, Register reg, AArch64Address address, InstructionType type, int log2TransferSize) {
         assert log2TransferSize >= 0 && log2TransferSize < 4;
         int transferSizeEncoding = log2TransferSize << LoadStoreTransferSizeOffset;
@@ -1266,11 +1278,11 @@ public abstract class AArch64Assembler extends Assembler {
         int memop = instr.encoding | transferSizeEncoding | is32Bit | isFloat | rt(reg);
         switch (address.getAddressingMode()) {
             case IMMEDIATE_SCALED:
-                annotatePatchingImmediate(position(), instr, 12, LoadStoreScaledImmOffset, log2TransferSize);
+                annotatePatchingImmediate(position(), instr, AArch64BitSpec.imm12Patcher, log2TransferSize);
                 emitInt(memop | LoadStoreScaledOp | address.getImmediate() << LoadStoreScaledImmOffset | rs1(address.getBase()));
                 break;
             case IMMEDIATE_UNSCALED:
-                annotatePatchingImmediate(position(), instr, 9, LoadStoreUnscaledImmOffset, 0);
+                annotatePatchingImmediate(position(), instr, AArch64BitSpec.imm9Patcher, 0);
                 emitInt(memop | LoadStoreUnscaledOp | address.getImmediate() << LoadStoreUnscaledImmOffset | rs1(address.getBase()));
                 break;
             case BASE_REGISTER_ONLY:
@@ -1285,15 +1297,15 @@ public abstract class AArch64Assembler extends Assembler {
             case PC_LITERAL:
                 assert log2TransferSize >= 2 : "PC literal loads only works for load/stores of 32-bit and larger";
                 transferSizeEncoding = (log2TransferSize - 2) << LoadStoreTransferSizeOffset;
-                annotatePatchingImmediate(position(), instr, 21, LoadLiteralImmeOffset, 2);
+                annotatePatchingImmediate(position(), instr, AArch64BitSpec.imm19Patcher, 2);
                 emitInt(transferSizeEncoding | isFloat | LoadLiteralOp | rd(reg) | address.getImmediate() << LoadLiteralImmeOffset);
                 break;
             case IMMEDIATE_POST_INDEXED:
-                annotatePatchingImmediate(position(), instr, 9, LoadStoreIndexedImmOffset, 0);
+                annotatePatchingImmediate(position(), instr, AArch64BitSpec.imm9Patcher, 0);
                 emitInt(memop | LoadStorePostIndexedOp | rs1(address.getBase()) | address.getImmediate() << LoadStoreIndexedImmOffset);
                 break;
             case IMMEDIATE_PRE_INDEXED:
-                annotatePatchingImmediate(position(), instr, 9, LoadStoreIndexedImmOffset, 0);
+                annotatePatchingImmediate(position(), instr, AArch64BitSpec.imm9Patcher, 0);
                 emitInt(memop | LoadStorePreIndexedOp | rs1(address.getBase()) | address.getImmediate() << LoadStoreIndexedImmOffset);
                 break;
             default:
@@ -3002,9 +3014,9 @@ public abstract class AArch64Assembler extends Assembler {
         emitInt(DC.encoding | type.encoding() | rt(src));
     }
 
-    public void annotatePatchingImmediate(int pos, Instruction instruction, int operandSizeBits, int offsetBits, int shift) {
+    public void annotatePatchingImmediate(int pos, Instruction instruction, Patcher patcher, int shift) {
         if (codePatchingAnnotationConsumer != null) {
-            codePatchingAnnotationConsumer.accept(new SingleInstructionAnnotation(pos, instruction, operandSizeBits, offsetBits, shift));
+            codePatchingAnnotationConsumer.accept(new SingleInstructionAnnotation(pos, instruction, patcher, shift));
         }
     }
 
@@ -3014,26 +3026,29 @@ public abstract class AArch64Assembler extends Assembler {
         }
     }
 
-    public static class SingleInstructionAnnotation extends CodeAnnotation {
+    public static class SingleInstructionAnnotation extends CodeAnnotation implements MacroInstruction {
 
         /**
          * The size of the operand, in bytes.
          */
-        public final int operandSizeBits;
-        public final int offsetBits;
+        private final Patcher patcher;
         public final Instruction instruction;
         public final int shift;
 
-        SingleInstructionAnnotation(int instructionPosition, Instruction instruction, int operandSizeBits, int offsetBits, int shift) {
+        SingleInstructionAnnotation(int instructionPosition, Instruction instruction, Patcher patcher, int shift) {
             super(instructionPosition);
-            this.operandSizeBits = operandSizeBits;
-            this.offsetBits = offsetBits;
+            this.patcher = patcher;
             this.shift = shift;
             this.instruction = instruction;
         }
+
+        @Override
+        public void patch(int codePos, int relative, byte[] code) {
+            patcher.patch(code, codePos, relative);
+        }
     }
 
-    public static class MovSequenceAnnotation extends CodeAnnotation {
+    public static class MovSequenceAnnotation extends CodeAnnotation implements MacroInstruction {
 
         /**
          * The size of the operand, in bytes.
@@ -3043,6 +3058,11 @@ public abstract class AArch64Assembler extends Assembler {
         MovSequenceAnnotation(int instructionPosition, int numInstrs) {
             super(instructionPosition);
             this.numInstrs = numInstrs;
+        }
+
+        @Override
+        public void patch(int codePos, int newImm, byte[] code) {
+            throw GraalError.unimplemented();
         }
     }
 

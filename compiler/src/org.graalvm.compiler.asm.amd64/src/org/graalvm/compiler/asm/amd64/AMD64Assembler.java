@@ -689,7 +689,7 @@ public class AMD64Assembler extends AMD64BaseAssembler {
             emitImmediate(asm, size, imm);
             int nextInsnPos = asm.position();
             if (annotateImm && asm.codePatchingAnnotationConsumer != null) {
-                asm.codePatchingAnnotationConsumer.accept(new OperandDataAnnotation(insnPos, immPos, nextInsnPos - immPos, nextInsnPos));
+                asm.codePatchingAnnotationConsumer.accept(new OperandDataAnnotation(insnPos, immPos, nextInsnPos - immPos, nextInsnPos, patcher(size.getBytes())));
             }
         }
 
@@ -706,7 +706,7 @@ public class AMD64Assembler extends AMD64BaseAssembler {
             emitImmediate(asm, size, imm);
             int nextInsnPos = asm.position();
             if (annotateImm && asm.codePatchingAnnotationConsumer != null) {
-                asm.codePatchingAnnotationConsumer.accept(new OperandDataAnnotation(insnPos, immPos, nextInsnPos - immPos, nextInsnPos));
+                asm.codePatchingAnnotationConsumer.accept(new OperandDataAnnotation(insnPos, immPos, nextInsnPos - immPos, nextInsnPos, patcher(size.getBytes())));
             }
         }
     }
@@ -2108,7 +2108,7 @@ public class AMD64Assembler extends AMD64BaseAssembler {
         emitInt(imm32);
         int nextInsnPos = position();
         if (annotateImm && codePatchingAnnotationConsumer != null) {
-            codePatchingAnnotationConsumer.accept(new OperandDataAnnotation(insnPos, immPos, nextInsnPos - immPos, nextInsnPos));
+            codePatchingAnnotationConsumer.accept(new OperandDataAnnotation(insnPos, immPos, nextInsnPos - immPos, nextInsnPos, I32PATCHER));
         }
     }
 
@@ -3307,7 +3307,7 @@ public class AMD64Assembler extends AMD64BaseAssembler {
         emitLong(imm64);
         int nextInsnPos = position();
         if (annotateImm && codePatchingAnnotationConsumer != null) {
-            codePatchingAnnotationConsumer.accept(new OperandDataAnnotation(insnPos, immPos, nextInsnPos - immPos, nextInsnPos));
+            codePatchingAnnotationConsumer.accept(new OperandDataAnnotation(insnPos, immPos, nextInsnPos - immPos, nextInsnPos, I64PATCHER));
         }
     }
 
@@ -3627,7 +3627,7 @@ public class AMD64Assembler extends AMD64BaseAssembler {
      * responsible to add the call address to the appropriate patching tables.
      */
     public final void call() {
-        annotatePatchingImmediate(1, 4);
+        annotatePatchingImmediate(1, 4, I32PATCHER);
         emitByte(0xE8);
         emitInt(0);
     }

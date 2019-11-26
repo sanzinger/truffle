@@ -884,7 +884,8 @@ public abstract class SPARCAssembler extends Assembler {
      * Specifies various bit fields used in SPARC instructions.
      */
     @SuppressWarnings("unused")
-    public abstract static class BitSpec {
+    public abstract static class SPARCBitSpec {
+
         private static final BitSpec op = new ContinousBitSpec(31, 30, "op");
         private static final BitSpec op2 = new ContinousBitSpec(24, 22, "op2");
         private static final BitSpec op3 = new ContinousBitSpec(24, 19, "op3");
@@ -930,146 +931,6 @@ public abstract class SPARCAssembler extends Assembler {
         private static final BitSpec d10Hi = new ContinousBitSpec(20, 19, true, "d10Hi");
         private static final BitSpec d10 = new CompositeBitSpec(d10Hi, d10Lo);
         private static final BitSpec simm5 = new ContinousBitSpec(4, 0, true, "simm5");
-
-        protected final boolean signExtend;
-
-        public BitSpec(boolean signExtend) {
-            super();
-            this.signExtend = signExtend;
-        }
-
-        public final boolean isSignExtend() {
-            return signExtend;
-        }
-
-        public abstract int setBits(int word, int value);
-
-        public abstract int getBits(int word);
-
-        public abstract int getWidth();
-
-        public abstract boolean valueFits(int value);
-    }
-
-    public static final class ContinousBitSpec extends BitSpec {
-        private final int hiBit;
-        private final int lowBit;
-        private final int width;
-        private final int mask;
-        private final String name;
-
-        public ContinousBitSpec(int hiBit, int lowBit, String name) {
-            this(hiBit, lowBit, false, name);
-        }
-
-        public ContinousBitSpec(int hiBit, int lowBit, boolean signExt, String name) {
-            super(signExt);
-            this.hiBit = hiBit;
-            this.lowBit = lowBit;
-            this.width = hiBit - lowBit + 1;
-            mask = ((1 << width) - 1) << lowBit;
-            this.name = name;
-        }
-
-        @Override
-        public int setBits(int word, int value) {
-            assert valueFits(value) : String.format("Value 0x%x for field %s does not fit.", value, this);
-            return (word & ~mask) | ((value << lowBit) & mask);
-        }
-
-        @Override
-        public int getBits(int word) {
-            if (signExtend) {
-                return ((word & mask) << (31 - hiBit)) >> (32 - width);
-            } else {
-                return (word & mask) >>> lowBit;
-            }
-        }
-
-        @Override
-        public int getWidth() {
-            return width;
-        }
-
-        @Override
-        public String toString() {
-            return String.format("%s [%d:%d]", name, hiBit, lowBit);
-        }
-
-        @Override
-        public boolean valueFits(int value) {
-            if (signExtend) {
-                return isSimm(value, getWidth());
-            } else {
-                return isImm(value, getWidth());
-            }
-        }
-    }
-
-    public static final class CompositeBitSpec extends BitSpec {
-        private final BitSpec left;
-        private final int leftWidth;
-        private final BitSpec right;
-        private final int rightWidth;
-        private final int width;
-
-        public CompositeBitSpec(BitSpec left, BitSpec right) {
-            super(left.isSignExtend());
-            assert !right.isSignExtend() : String.format("Right field %s must not be sign extended", right);
-            this.left = left;
-            this.leftWidth = left.getWidth();
-            this.right = right;
-            this.rightWidth = right.getWidth();
-            this.width = leftWidth + rightWidth;
-        }
-
-        @Override
-        public int getBits(int word) {
-            int l = left.getBits(word);
-            int r = right.getBits(word);
-            return (l << rightWidth) | r;
-        }
-
-        @Override
-        public int setBits(int word, int value) {
-            int l = leftBits(value);
-            int r = rightBits(value);
-            return left.setBits(right.setBits(word, r), l);
-        }
-
-        private int leftBits(int value) {
-            return getBits(value, width - 1, rightWidth, signExtend);
-        }
-
-        private int rightBits(int value) {
-            return getBits(value, rightWidth - 1, 0, false);
-        }
-
-        @Override
-        public int getWidth() {
-            return width;
-        }
-
-        @Override
-        public String toString() {
-            return String.format("CompositeBitSpec[%s, %s]", left, right);
-        }
-
-        @Override
-        public boolean valueFits(int value) {
-            int l = leftBits(value);
-            int r = rightBits(value);
-            return left.valueFits(l) && right.valueFits(r);
-        }
-
-        private static int getBits(int inst, int hiBit, int lowBit, boolean signExtended) {
-            int shifted = inst >> lowBit;
-            if (signExtended) {
-                return shifted;
-            } else {
-                return shifted & ((1 << (hiBit - lowBit + 1)) - 1);
-            }
-        }
     }
 
     public static class BitKey {
@@ -1089,7 +950,7 @@ public abstract class SPARCAssembler extends Assembler {
     }
 
     /**
-     * Represents a prefix tree of {@link BitSpec} objects to find the most accurate SPARCOp.
+     * Represents a prefix tree of {@link SPARCBitSpec} objects to find the most accurate SPARCOp.
      */
     public static final class BitKeyIndex {
         private final BitSpec spec;
@@ -1186,7 +1047,7 @@ public abstract class SPARCAssembler extends Assembler {
     public static final SPARCOp LDST = new SPARCOp(Ops.LdstOp);
     public static final SPARCOp BRANCH = new SPARCOp(Ops.BranchOp);
     public static final SPARCOp CALL = new SPARCOp(Ops.CallOp);
-    private static final BitKeyIndex INDEX = new BitKeyIndex(BitSpec.op);
+    private static final BitKeyIndex INDEX = new BitKeyIndex(SPARCBitSpec.op);
 
     static {
         for (SPARCOp op : SPARCOp.OPS) {
@@ -1210,12 +1071,12 @@ public abstract class SPARCAssembler extends Assembler {
         public SPARCOp(Ops op) {
             super();
             this.op = op;
-            this.opKey = new BitKey(BitSpec.op, op.value);
+            this.opKey = new BitKey(SPARCBitSpec.op, op.value);
             OPS.add(this);
         }
 
         protected int setBits(int word) {
-            return BitSpec.op.setBits(word, op.value);
+            return SPARCBitSpec.op.setBits(word, op.value);
         }
 
         public boolean match(int inst) {
@@ -1238,7 +1099,7 @@ public abstract class SPARCAssembler extends Assembler {
         }
 
         public Ops getOp(int inst) {
-            return SPARCAssembler.OPS[BitSpec.op.getBits(inst)];
+            return SPARCAssembler.OPS[SPARCBitSpec.op.getBits(inst)];
         }
 
         @Override
@@ -1263,7 +1124,7 @@ public abstract class SPARCAssembler extends Assembler {
             this.op2 = op2;
             this.delaySlot = delaySlot;
             this.disp = disp;
-            this.op2Key = new BitKey[]{new BitKey(BitSpec.op2, op2.value)};
+            this.op2Key = new BitKey[]{new BitKey(SPARCBitSpec.op2, op2.value)};
         }
 
         public boolean hasDelaySlot() {
@@ -1272,7 +1133,7 @@ public abstract class SPARCAssembler extends Assembler {
 
         @Override
         protected int setBits(int word) {
-            return BitSpec.op2.setBits(super.setBits(word), op2.value);
+            return SPARCBitSpec.op2.setBits(super.setBits(word), op2.value);
         }
 
         protected int setDisp(int inst, SPARCMacroAssembler masm, Label lab) {
@@ -1298,7 +1159,7 @@ public abstract class SPARCAssembler extends Assembler {
         }
 
         public int setAnnul(int inst, boolean a) {
-            return BitSpec.a.setBits(inst, a ? 1 : 0);
+            return SPARCBitSpec.a.setBits(inst, a ? 1 : 0);
         }
 
         @Override
@@ -1319,15 +1180,15 @@ public abstract class SPARCAssembler extends Assembler {
 
     public static final class Bpcc extends ControlTransferOp {
         public Bpcc(Op2s op2) {
-            super(Ops.BranchOp, op2, true, BitSpec.disp19);
+            super(Ops.BranchOp, op2, true, SPARCBitSpec.disp19);
         }
 
         public void emit(SPARCMacroAssembler masm, CC cc, ConditionFlag cf, Annul annul, BranchPredict p, Label lab) {
             int inst = setBits(0);
-            inst = BitSpec.a.setBits(inst, annul.flag);
-            inst = BitSpec.cond.setBits(inst, cf.value);
-            inst = BitSpec.cc.setBits(inst, cc.value);
-            inst = BitSpec.p.setBits(inst, p.flag);
+            inst = SPARCBitSpec.a.setBits(inst, annul.flag);
+            inst = SPARCBitSpec.cond.setBits(inst, cf.value);
+            inst = SPARCBitSpec.cc.setBits(inst, cc.value);
+            inst = SPARCBitSpec.p.setBits(inst, p.flag);
             masm.insertNopAfterCBCond();
             masm.emitInt(setDisp(inst, masm, lab));
         }
@@ -1339,14 +1200,14 @@ public abstract class SPARCAssembler extends Assembler {
 
         @Override
         public boolean isConditional(int inst) {
-            int cond = BitSpec.cond.getBits(inst);
+            int cond = SPARCBitSpec.cond.getBits(inst);
             return cond != ConditionFlag.Always.value && cond != ConditionFlag.Never.value;
         }
     }
 
     public static final class Br extends ControlTransferOp {
         public Br() {
-            super(Ops.BranchOp, Op2s.Br, true, BitSpec.disp22);
+            super(Ops.BranchOp, Op2s.Br, true, SPARCBitSpec.disp22);
         }
 
         @Override
@@ -1356,32 +1217,32 @@ public abstract class SPARCAssembler extends Assembler {
 
         @Override
         public boolean isConditional(int inst) {
-            int cond = BitSpec.cond.getBits(inst);
+            int cond = SPARCBitSpec.cond.getBits(inst);
             return cond != ConditionFlag.Always.value && cond != ConditionFlag.Never.value;
         }
 
         public void emit(SPARCMacroAssembler masm, ConditionFlag cond, Annul a, Label lab) {
             int inst = setBits(0);
-            inst = BitSpec.cond.setBits(inst, cond.value);
-            inst = BitSpec.a.setBits(inst, a.flag);
+            inst = SPARCBitSpec.cond.setBits(inst, cond.value);
+            inst = SPARCBitSpec.a.setBits(inst, a.flag);
             masm.insertNopAfterCBCond();
             masm.emitInt(setDisp(inst, masm, lab));
         }
     }
 
     public static final class Bpr extends ControlTransferOp {
-        private static final BitKey CBCOND_KEY = new BitKey(BitSpec.cbcond, 0);
+        private static final BitKey CBCOND_KEY = new BitKey(SPARCBitSpec.cbcond, 0);
 
         public Bpr() {
-            super(Ops.BranchOp, Op2s.Bpr, true, BitSpec.d16);
+            super(Ops.BranchOp, Op2s.Bpr, true, SPARCBitSpec.d16);
         }
 
         public void emit(SPARCMacroAssembler masm, RCondition rcond, Annul a, BranchPredict p, Register rs1, Label lab) {
             int inst = setBits(0);
-            inst = BitSpec.rcond.setBits(inst, rcond.value);
-            inst = BitSpec.a.setBits(inst, a.flag);
-            inst = BitSpec.p.setBits(inst, p.flag);
-            inst = BitSpec.rs1.setBits(inst, rs1.encoding);
+            inst = SPARCBitSpec.rcond.setBits(inst, rcond.value);
+            inst = SPARCBitSpec.a.setBits(inst, a.flag);
+            inst = SPARCBitSpec.p.setBits(inst, p.flag);
+            inst = SPARCBitSpec.rs1.setBits(inst, rs1.encoding);
             masm.insertNopAfterCBCond();
             masm.emitInt(setDisp(inst, masm, lab));
         }
@@ -1400,16 +1261,16 @@ public abstract class SPARCAssembler extends Assembler {
 
         @Override
         public boolean isConditional(int inst) {
-            int cond = BitSpec.cond.getBits(inst);
+            int cond = SPARCBitSpec.cond.getBits(inst);
             return cond != ConditionFlag.Always.value && cond != ConditionFlag.Never.value;
         }
     }
 
     public static final class CBCond extends ControlTransferOp {
-        private static final BitKey CBCOND_KEY = new BitKey(BitSpec.cbcond, 1);
+        private static final BitKey CBCOND_KEY = new BitKey(SPARCBitSpec.cbcond, 1);
 
         private CBCond() {
-            super(Ops.BranchOp, Op2s.Bpr, false, BitSpec.d10);
+            super(Ops.BranchOp, Op2s.Bpr, false, SPARCBitSpec.d10);
         }
 
         @Override
@@ -1421,16 +1282,16 @@ public abstract class SPARCAssembler extends Assembler {
 
         public void emit(SPARCMacroAssembler masm, ConditionFlag cf, boolean cc2, Register rs1, Register rs2, Label lab) {
             int inst = setBits(0, cf, cc2, rs1);
-            inst = BitSpec.rs2.setBits(inst, rs2.encoding);
-            inst = BitSpec.i.setBits(inst, 0);
+            inst = SPARCBitSpec.rs2.setBits(inst, rs2.encoding);
+            inst = SPARCBitSpec.i.setBits(inst, 0);
             masm.insertNopAfterCBCond();
             emit(masm, lab, inst);
         }
 
         public void emit(SPARCMacroAssembler masm, ConditionFlag cf, boolean cc2, Register rs1, int simm5, Label lab) {
             int inst = setBits(0, cf, cc2, rs1);
-            inst = BitSpec.simm5.setBits(inst, simm5);
-            inst = BitSpec.i.setBits(inst, 1);
+            inst = SPARCBitSpec.simm5.setBits(inst, simm5);
+            inst = SPARCBitSpec.i.setBits(inst, 1);
             emit(masm, lab, inst);
         }
 
@@ -1442,10 +1303,10 @@ public abstract class SPARCAssembler extends Assembler {
 
         private int setBits(int base, ConditionFlag cf, boolean cc2, Register rs1) {
             int inst = super.setBits(base);
-            inst = BitSpec.rs1.setBits(inst, rs1.encoding);
-            inst = BitSpec.cc2.setBits(inst, cc2 ? 1 : 0);
-            inst = BitSpec.c.setBits(inst, cf.value);
-            return BitSpec.cbcond.setBits(inst, 1);
+            inst = SPARCBitSpec.rs1.setBits(inst, rs1.encoding);
+            inst = SPARCBitSpec.cc2.setBits(inst, cc2 ? 1 : 0);
+            inst = SPARCBitSpec.c.setBits(inst, cf.value);
+            return SPARCBitSpec.cbcond.setBits(inst, 1);
         }
 
         @Override
@@ -1466,13 +1327,13 @@ public abstract class SPARCAssembler extends Assembler {
         public Op2Op(Ops op, Op2s op2) {
             super(op);
             this.op2 = op2;
-            op2Key = new BitKey(BitSpec.op2, op2.value);
+            op2Key = new BitKey(SPARCBitSpec.op2, op2.value);
         }
 
         @Override
         protected int setBits(int word) {
             int result = super.setBits(word);
-            return BitSpec.op2.setBits(result, op2.value);
+            return SPARCBitSpec.op2.setBits(result, op2.value);
         }
 
         @Override
@@ -1489,12 +1350,12 @@ public abstract class SPARCAssembler extends Assembler {
         }
 
         public static Register getRS1(int word) {
-            int regNum = BitSpec.rs1.getBits(word);
+            int regNum = SPARCBitSpec.rs1.getBits(word);
             return SPARC.cpuRegisters.get(regNum);
         }
 
         public static int getImm22(int word) {
-            return BitSpec.imm22.getBits(word);
+            return SPARCBitSpec.imm22.getBits(word);
         }
 
         public static boolean isNop(int inst) {
@@ -1509,33 +1370,33 @@ public abstract class SPARCAssembler extends Assembler {
 
         public Op3s getOp3(int inst) {
             assert match(inst);
-            return OP3S[ArithOp.value & 1][BitSpec.op3.getBits(inst)];
+            return OP3S[ArithOp.value & 1][SPARCBitSpec.op3.getBits(inst)];
         }
 
         public static void emit(SPARCMacroAssembler masm, Op3s opcode, Register rs1, Register rs2, Register rd) {
             int instruction = setBits(0, opcode, rs1, rd);
-            instruction = BitSpec.rs2.setBits(instruction, rs2.encoding);
-            instruction = BitSpec.i.setBits(instruction, 0);
+            instruction = SPARCBitSpec.rs2.setBits(instruction, rs2.encoding);
+            instruction = SPARCBitSpec.i.setBits(instruction, 0);
             masm.emitInt(instruction);
         }
 
         public static void emit(SPARCMacroAssembler masm, Op3s opcode, Register rs1, int simm13, Register rd) {
             int instruction = setBits(0, opcode, rs1, rd);
-            instruction = BitSpec.i.setBits(instruction, 1);
+            instruction = SPARCBitSpec.i.setBits(instruction, 1);
             BitSpec immediateSpec;
             switch (opcode) {
                 case Sllx:
                 case Srlx:
                 case Srax:
-                    immediateSpec = BitSpec.shcnt64;
+                    immediateSpec = SPARCBitSpec.shcnt64;
                     break;
                 case Sll:
                 case Srl:
                 case Sra:
-                    immediateSpec = BitSpec.shcnt32;
+                    immediateSpec = SPARCBitSpec.shcnt32;
                     break;
                 default:
-                    immediateSpec = BitSpec.simm13;
+                    immediateSpec = SPARCBitSpec.simm13;
                     break;
             }
             instruction = immediateSpec.setBits(instruction, simm13);
@@ -1544,17 +1405,17 @@ public abstract class SPARCAssembler extends Assembler {
 
         private static int setBits(int instruction, Op3s op3, Register rs1, Register rd) {
             assert op3.op.equals(ArithOp);
-            int tmp = BitSpec.op3.setBits(instruction, op3.value);
+            int tmp = SPARCBitSpec.op3.setBits(instruction, op3.value);
             switch (op3) {
                 case Sllx:
                 case Srlx:
                 case Srax:
-                    tmp = BitSpec.x.setBits(tmp, 1);
+                    tmp = SPARCBitSpec.x.setBits(tmp, 1);
                     break;
             }
-            tmp = BitSpec.op.setBits(tmp, op3.op.value);
-            tmp = BitSpec.rd.setBits(tmp, rd.encoding);
-            return BitSpec.rs1.setBits(tmp, rs1.encoding);
+            tmp = SPARCBitSpec.op.setBits(tmp, op3.op.value);
+            tmp = SPARCBitSpec.rd.setBits(tmp, rd.encoding);
+            return SPARCBitSpec.rs1.setBits(tmp, rs1.encoding);
         }
     }
 
@@ -1577,31 +1438,31 @@ public abstract class SPARCAssembler extends Assembler {
         @Override
         public void emit(SPARCMacroAssembler masm, ConditionFlag condition, CC cc, Register rs2, Register rd) {
             int inst = setBits(0, condition, cc, rd);
-            inst = BitSpec.rs2.setBits(inst, rs2.encoding());
+            inst = SPARCBitSpec.rs2.setBits(inst, rs2.encoding());
             masm.emitInt(inst);
         }
 
         @Override
         public void emit(SPARCMacroAssembler masm, ConditionFlag condition, CC cc, int simm11, Register rd) {
             int inst = setBits(0, condition, cc, rd);
-            inst = BitSpec.i.setBits(inst, 1);
-            inst = BitSpec.simm11.setBits(inst, simm11);
+            inst = SPARCBitSpec.i.setBits(inst, 1);
+            inst = SPARCBitSpec.simm11.setBits(inst, simm11);
             masm.emitInt(inst);
         }
 
         protected int setBits(int word, ConditionFlag condition, CC cc, Register rd) {
             int inst = super.setBits(word);
-            inst = BitSpec.rd.setBits(inst, rd.encoding());
-            inst = BitSpec.op3.setBits(inst, op3.value);
-            inst = BitSpec.movccCond.setBits(inst, condition.value);
-            inst = BitSpec.movccLo.setBits(inst, cc.value);
-            return BitSpec.movccHi.setBits(inst, cc.isFloat ? 0 : 1);
+            inst = SPARCBitSpec.rd.setBits(inst, rd.encoding());
+            inst = SPARCBitSpec.op3.setBits(inst, op3.value);
+            inst = SPARCBitSpec.movccCond.setBits(inst, condition.value);
+            inst = SPARCBitSpec.movccLo.setBits(inst, cc.value);
+            return SPARCBitSpec.movccHi.setBits(inst, cc.isFloat ? 0 : 1);
         }
 
         @Override
         protected List<BitKey[]> getKeys() {
             List<BitKey[]> keys = super.getKeys();
-            keys.add(new BitKey[]{new BitKey(BitSpec.op3, op3.value)});
+            keys.add(new BitKey[]{new BitKey(SPARCBitSpec.op3, op3.value)});
             return keys;
         }
     }
@@ -1617,12 +1478,12 @@ public abstract class SPARCAssembler extends Assembler {
         @Override
         public void emit(SPARCMacroAssembler masm, ConditionFlag condition, CC cc, Register rs2, Register rd) {
             int inst = setBits(0);
-            inst = BitSpec.rd.setBits(inst, rd.encoding());
-            inst = BitSpec.op3.setBits(inst, opfLow.op3.value);
-            inst = BitSpec.opfCond.setBits(inst, condition.value);
-            inst = BitSpec.opfCC.setBits(inst, cc.getOpfCCValue());
-            inst = BitSpec.opfLow.setBits(inst, opfLow.value);
-            inst = BitSpec.rs2.setBits(inst, rs2.encoding());
+            inst = SPARCBitSpec.rd.setBits(inst, rd.encoding());
+            inst = SPARCBitSpec.op3.setBits(inst, opfLow.op3.value);
+            inst = SPARCBitSpec.opfCond.setBits(inst, condition.value);
+            inst = SPARCBitSpec.opfCC.setBits(inst, cc.getOpfCCValue());
+            inst = SPARCBitSpec.opfLow.setBits(inst, opfLow.value);
+            inst = SPARCBitSpec.rs2.setBits(inst, rs2.encoding());
             masm.emitInt(inst);
         }
 
@@ -1634,8 +1495,8 @@ public abstract class SPARCAssembler extends Assembler {
         @Override
         protected List<BitKey[]> getKeys() {
             List<BitKey[]> keys = super.getKeys();
-            keys.add(new BitKey[]{new BitKey(BitSpec.op3, opfLow.op3.value)});
-            keys.add(new BitKey[]{new BitKey(BitSpec.opfLow, opfLow.value)});
+            keys.add(new BitKey[]{new BitKey(SPARCBitSpec.op3, opfLow.op3.value)});
+            keys.add(new BitKey[]{new BitKey(SPARCBitSpec.opfLow, opfLow.value)});
             return keys;
         }
     }
@@ -1652,33 +1513,33 @@ public abstract class SPARCAssembler extends Assembler {
         public OpfOp() {
             // @formatter:off
             this(new BitKey[]{
-                            new BitKey(BitSpec.op3, Op3s.Fpop1.value),
-                            new BitKey(BitSpec.op3, Op3s.Fpop2.value),
-                            new BitKey(BitSpec.op3, Op3s.Impdep1.value),
-                            new BitKey(BitSpec.op3, Op3s.Impdep2.value)});
+                            new BitKey(SPARCBitSpec.op3, Op3s.Fpop1.value),
+                            new BitKey(SPARCBitSpec.op3, Op3s.Fpop2.value),
+                            new BitKey(SPARCBitSpec.op3, Op3s.Impdep1.value),
+                            new BitKey(SPARCBitSpec.op3, Op3s.Impdep2.value)});
             // @formatter:on
         }
 
         public static void emit(SPARCMacroAssembler masm, Opfs opf, Register rs1, Register rs2, Register rd) {
             int instruction = setBits(0, opf, rs1, rs2);
-            instruction = BitSpec.rd.setBits(instruction, rd.encoding);
-            instruction = BitSpec.i.setBits(instruction, 0);
+            instruction = SPARCBitSpec.rd.setBits(instruction, rd.encoding);
+            instruction = SPARCBitSpec.i.setBits(instruction, 0);
             masm.emitInt(instruction);
         }
 
         public static void emitFcmp(SPARCMacroAssembler masm, Opfs opf, CC cc, Register rs1, Register rs2) {
             assert opf.equals(Opfs.Fcmpd) || opf.equals(Opfs.Fcmps) : opf;
             int instruction = setBits(0, opf, rs1, rs2);
-            instruction = BitSpec.fcc.setBits(instruction, cc.value);
+            instruction = SPARCBitSpec.fcc.setBits(instruction, cc.value);
             masm.emitInt(instruction);
         }
 
         private static int setBits(int instruction, Opfs opf, Register rs1, Register rs2) {
-            int tmp = BitSpec.op.setBits(instruction, opf.op3.op.value);
-            tmp = BitSpec.op3.setBits(tmp, opf.op3.value);
-            tmp = BitSpec.opf.setBits(tmp, opf.value);
-            tmp = BitSpec.rs1.setBits(tmp, rs1.encoding);
-            return BitSpec.rs2.setBits(tmp, rs2.encoding);
+            int tmp = SPARCBitSpec.op.setBits(instruction, opf.op3.op.value);
+            tmp = SPARCBitSpec.op3.setBits(tmp, opf.op3.value);
+            tmp = SPARCBitSpec.opf.setBits(tmp, opf.value);
+            tmp = SPARCBitSpec.rs1.setBits(tmp, rs1.encoding);
+            return SPARCBitSpec.rs2.setBits(tmp, rs2.encoding);
         }
 
         @Override
@@ -1821,10 +1682,10 @@ public abstract class SPARCAssembler extends Assembler {
     protected void fmt00(int a, int op2, int b) {
         assert isImm(a, 5) && isImm(op2, 3) && isImm(b, 22) : String.format("a: 0x%x op2: 0x%x b: 0x%x", a, op2, b);
         int word = 0;
-        BitSpec.op.setBits(word, 0);
-        BitSpec.rd.setBits(word, a);
-        BitSpec.op2.setBits(word, op2);
-        BitSpec.imm22.setBits(word, b);
+        SPARCBitSpec.op.setBits(word, 0);
+        SPARCBitSpec.rd.setBits(word, a);
+        SPARCBitSpec.op2.setBits(word, op2);
+        SPARCBitSpec.imm22.setBits(word, b);
         emitInt(a << 25 | op2 << 22 | b);
     }
 

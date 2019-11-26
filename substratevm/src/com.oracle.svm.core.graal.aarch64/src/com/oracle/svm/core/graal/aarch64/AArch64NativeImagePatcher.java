@@ -27,6 +27,7 @@ package com.oracle.svm.core.graal.aarch64;
 import java.util.function.Consumer;
 
 import org.graalvm.compiler.asm.Assembler;
+import org.graalvm.compiler.asm.Assembler.Patcher;
 import org.graalvm.compiler.asm.amd64.AMD64BaseAssembler.OperandDataAnnotation;
 import org.graalvm.compiler.code.CompilationResult;
 import org.graalvm.nativeimage.ImageSingletons;
@@ -37,6 +38,7 @@ import org.graalvm.nativeimage.hosted.Feature;
 import com.oracle.svm.core.annotate.AutomaticFeature;
 import com.oracle.svm.core.graal.code.NativeImagePatcher;
 import com.oracle.svm.core.graal.code.PatchConsumerFactory;
+import com.oracle.svm.core.util.VMError;
 
 @AutomaticFeature
 @Platforms({Platform.AARCH64.class})
@@ -69,15 +71,7 @@ public class AArch64NativeImagePatcher extends CompilationResult.CodeAnnotation 
 
     @Override
     public void patchCode(int relative, byte[] code) {
-        // int curValue = relative - (annotation.nextInstructionPosition -
-        // annotation.instructionPosition);
-        //
-        // for (int i = 0; i < annotation.operandSize; i++) {
-        // assert code[annotation.operandPosition + i] == 0;
-        // code[annotation.operandPosition + i] = (byte) (curValue & 0xFF);
-        // curValue = curValue >>> 8;
-        // }
-        // assert curValue == 0;
+        throw VMError.shouldNotReachHere();
     }
 
     @Override
@@ -93,5 +87,10 @@ public class AArch64NativeImagePatcher extends CompilationResult.CodeAnnotation 
     @Override
     public boolean equals(Object obj) {
         return obj == this;
+    }
+
+    @Override
+    public Patcher patcher() {
+        return annotation.patcher;
     }
 }

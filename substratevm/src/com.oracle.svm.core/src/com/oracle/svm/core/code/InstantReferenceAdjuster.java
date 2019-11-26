@@ -24,14 +24,19 @@
  */
 package com.oracle.svm.core.code;
 
+import org.graalvm.compiler.asm.Assembler.PatchDefinition;
+import org.graalvm.compiler.asm.Assembler.PatchGroup;
+import org.graalvm.compiler.asm.Assembler.Patcher;
+import org.graalvm.compiler.word.Word;
 import org.graalvm.word.Pointer;
-import org.graalvm.word.PointerBase;
 
 import com.oracle.svm.core.annotate.Uninterruptible;
 import com.oracle.svm.core.c.NonmovableArrays;
 import com.oracle.svm.core.c.NonmovableObjectArray;
+import com.oracle.svm.core.heap.ReferenceAccess;
 import com.oracle.svm.core.meta.DirectSubstrateObjectConstant;
 import com.oracle.svm.core.meta.SubstrateObjectConstant;
+import com.oracle.svm.core.util.VMError;
 
 /**
  * Immediately writes object references and fails if it cannot do so.
@@ -52,8 +57,31 @@ public class InstantReferenceAdjuster implements ReferenceAdjuster {
 
     @Override
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
-    public void setConstantTargetAt(PointerBase address, int length, SubstrateObjectConstant constant) {
-        ReferenceAdjuster.writeReference((Pointer) address, length, ((DirectSubstrateObjectConstant) constant).getObject());
+    public void setConstantTargetAt(Pointer address, int length, boolean compressed, Patcher patcher, SubstrateObjectConstant constant) {
+        Object obj = ((DirectSubstrateObjectConstant) constant).getObject();
+        long value;
+        if (compressed) {
+            value = ReferenceAccess.singleton().getCompressedRepresentation(obj).rawValue();
+        } else {
+            value = Word.objectToUntrackedPointer(obj).rawValue();
+        }
+        long valueTmp = value;
+        for (PatchGroup pg : patcher.groups) {
+            long toPatch = value;
+            if (toPatch > pg.maxValue) {
+                toPatch = pg.maxValue;
+            } else if (toPatch < pg.minValue) {
+                toPatch = pg.minValue;
+            }
+            for (PatchDefinition d : pg.definitions) {
+                int word = address.readByte(d.byteOffset) & ~d.outputMask;
+                long outputBitsBase = toPatch >>> d.inputShift;
+                long outputBits = (outputBitsBase << d.outputShift) & d.outputMask;
+                address.writeByte(d.byteOffset, (byte) (word | outputBits));
+            }
+            valueTmp -= toPatch;
+        }
+        VMError.guarantee(valueTmp == 0, "Could not completly patch value");
     }
 
     @Override

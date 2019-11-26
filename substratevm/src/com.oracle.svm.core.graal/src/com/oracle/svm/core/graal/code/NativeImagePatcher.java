@@ -24,10 +24,12 @@
  */
 package com.oracle.svm.core.graal.code;
 
+import org.graalvm.compiler.asm.Assembler.Patchable;
+
 /**
  * Patcher used during native image runtime.
  */
-public interface NativeImagePatcher {
+public interface NativeImagePatcher extends Patchable {
     /**
      * Patch directly in the code buffer with an offset relative to the start of this instruction.
      */

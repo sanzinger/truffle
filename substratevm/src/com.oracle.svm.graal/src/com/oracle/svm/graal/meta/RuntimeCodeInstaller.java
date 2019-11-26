@@ -33,12 +33,17 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 
+import org.graalvm.compiler.asm.Assembler.PatchDefinition;
+import org.graalvm.compiler.asm.Assembler.PatchGroup;
+import org.graalvm.compiler.asm.Assembler.Patcher;
+import org.graalvm.compiler.asm.amd64.AMD64BaseAssembler;
 import org.graalvm.compiler.code.CompilationResult;
 import org.graalvm.compiler.code.CompilationResult.CodeAnnotation;
 import org.graalvm.compiler.core.common.NumUtil;
 import org.graalvm.compiler.debug.DebugContext;
 import org.graalvm.compiler.debug.Indent;
 import org.graalvm.compiler.truffle.common.TruffleCompiler;
+import org.graalvm.compiler.word.Word;
 import org.graalvm.nativeimage.ImageSingletons;
 import org.graalvm.nativeimage.c.function.CodePointer;
 import org.graalvm.nativeimage.c.type.CTypeConversion;
@@ -69,6 +74,7 @@ import com.oracle.svm.core.graal.meta.SharedRuntimeMethod;
 import com.oracle.svm.core.heap.CodeReferenceMapEncoder;
 import com.oracle.svm.core.heap.ReferenceAccess;
 import com.oracle.svm.core.heap.SubstrateReferenceMap;
+import com.oracle.svm.core.meta.DirectSubstrateObjectConstant;
 import com.oracle.svm.core.meta.SharedMethod;
 import com.oracle.svm.core.meta.SubstrateObjectConstant;
 import com.oracle.svm.core.os.CommittedMemoryProvider;
@@ -210,6 +216,8 @@ public class RuntimeCodeInstaller {
         final int[] offsets;
         final int[] lengths;
         final SubstrateObjectConstant[] constants;
+        final boolean[] compressed;
+        final Patcher[] patchers;
         int count;
 
         ObjectConstantsHolder(CompilationResult compilation) {
@@ -220,14 +228,18 @@ public class RuntimeCodeInstaller {
             offsets = new int[maxTotalRefs];
             lengths = new int[maxTotalRefs];
             constants = new SubstrateObjectConstant[maxTotalRefs];
+            compressed = new boolean[maxTotalRefs];
+            patchers = new Patcher[maxTotalRefs];
             referenceMap = new SubstrateReferenceMap();
         }
 
-        void add(int offset, int length, SubstrateObjectConstant constant) {
+        void add(int offset, int length, SubstrateObjectConstant constant, Patcher patcher) {
             assert constant.isCompressed() == ReferenceAccess.singleton().haveCompressedReferences() : "Object reference constants in code must be compressed";
             offsets[count] = offset;
             lengths[count] = length;
             constants[count] = constant;
+            patchers[count] = patcher;
+            compressed[count] = constant.isCompressed();
             referenceMap.markReferenceAtOffset(offset, true);
             count++;
         }
@@ -276,9 +288,11 @@ public class RuntimeCodeInstaller {
         /* Write primitive constants to the buffer, record object constants with offsets */
         ByteBuffer constantsBuffer = CTypeConversion.asByteBuffer(code.add(constantsOffset), compilation.getDataSection().getSectionSize());
         compilation.getDataSection().buildDataSection(constantsBuffer, (position, constant) -> {
-            objectConstants.add(constantsOffset + position,
-                            ConfigurationValues.getObjectLayout().getReferenceSize(),
-                            (SubstrateObjectConstant) constant);
+            int offset = constantsOffset + position;
+            int length = ConfigurationValues.getObjectLayout().getReferenceSize();
+            objectConstants.add(offset,
+                            length,
+                            (SubstrateObjectConstant) constant, AMD64BaseAssembler.patcher(length));
         });
 
         NonmovableArray<InstalledCodeObserverHandle> observerHandles = InstalledCodeObserverSupport.installObservers(codeObservers);
@@ -328,7 +342,7 @@ public class RuntimeCodeInstaller {
     private void patchDirectObjectConstants(ObjectConstantsHolder objectConstants, CodeInfo runtimeMethodInfo, ReferenceAdjuster adjuster) {
         for (int i = 0; i < objectConstants.count; i++) {
             SubstrateObjectConstant constant = objectConstants.constants[i];
-            adjuster.setConstantTargetAt(code.add(objectConstants.offsets[i]), objectConstants.lengths[i], constant);
+            adjuster.setConstantTargetAt(code.add(objectConstants.offsets[i]), objectConstants.lengths[i], objectConstants.compressed[i], objectConstants.patchers[i], constant);
         }
         CodeInfoAccess.setState(runtimeMethodInfo, CodeInfo.STATE_CODE_CONSTANTS_LIVE);
     }
@@ -355,7 +369,7 @@ public class RuntimeCodeInstaller {
             } else if (dataPatch.reference instanceof ConstantReference) {
                 ConstantReference ref = (ConstantReference) dataPatch.reference;
                 SubstrateObjectConstant refConst = (SubstrateObjectConstant) ref.getConstant();
-                objectConstants.add(patch.getOffset(), patch.getLength(), refConst);
+                objectConstants.add(patch.getOffset(), patch.getLength(), refConst, patch.patcher());
             }
         }
     }

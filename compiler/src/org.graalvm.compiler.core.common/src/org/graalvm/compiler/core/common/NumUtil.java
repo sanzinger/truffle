@@ -164,10 +164,18 @@ public class NumUtil {
     }
 
     public static boolean isSignedNbit(int n, long value) {
-        assert n > 0 && n < 64;
+        assert n > 0 && n <= 64;
         long min = -(1L << (n - 1));
         long max = (1L << (n - 1)) - 1;
         return value >= min && value <= max;
+    }
+
+    public static boolean isNbit(int n, long value, boolean signed) {
+        if (signed) {
+            return isSignedNbit(n, value);
+        } else {
+            return isUnsignedNbit(n, value);
+        }
     }
 
     /**

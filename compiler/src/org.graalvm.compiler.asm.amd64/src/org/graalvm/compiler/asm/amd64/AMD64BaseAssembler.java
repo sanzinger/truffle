@@ -68,7 +68,27 @@ import jdk.vm.ci.meta.PlatformKind;
  */
 public abstract class AMD64BaseAssembler extends Assembler {
 
+    public static final Patcher I8PATCHER = Patcher.from(new ContinousBitSpec(7, 0, true, 1, "i8"));
+    public static final Patcher I16PATCHER = Patcher.from(new ContinousBitSpec(15, 0, true, 2, "i16"));
+    public static final Patcher I32PATCHER = Patcher.from(new ContinousBitSpec(31, 0, true, 4, "i32"));
+    public static final Patcher I64PATCHER = Patcher.from(new ContinousBitSpec(63, 0, true, 8, "i64"));
+
     private final SIMDEncoder simdEncoder;
+
+    public static Patcher patcher(int size) {
+        switch (size) {
+            case 8:
+                return I64PATCHER;
+            case 4:
+                return I32PATCHER;
+            case 2:
+                return I16PATCHER;
+            case 1:
+                return I8PATCHER;
+            default:
+                throw GraalError.shouldNotReachHere("Unknown patch size " + size);
+        }
+    }
 
     /**
      * Constructs an assembler for the AMD64 architecture.
@@ -225,12 +245,15 @@ public abstract class AMD64BaseAssembler extends Assembler {
          */
         public final int nextInstructionPosition;
 
-        OperandDataAnnotation(int instructionPosition, int operandPosition, int operandSize, int nextInstructionPosition) {
+        public final Patcher patcher;
+
+        OperandDataAnnotation(int instructionPosition, int operandPosition, int operandSize, int nextInstructionPosition, Patcher patcher) {
             super(instructionPosition);
 
             this.operandPosition = operandPosition;
             this.operandSize = operandSize;
             this.nextInstructionPosition = nextInstructionPosition;
+            this.patcher = patcher;
         }
 
         @Override
@@ -239,10 +262,10 @@ public abstract class AMD64BaseAssembler extends Assembler {
         }
     }
 
-    protected void annotatePatchingImmediate(int operandOffset, int operandSize) {
+    protected void annotatePatchingImmediate(int operandOffset, int operandSize, Patcher patcher) {
         if (codePatchingAnnotationConsumer != null) {
             int pos = position();
-            codePatchingAnnotationConsumer.accept(new OperandDataAnnotation(pos, pos + operandOffset, operandSize, pos + operandOffset + operandSize));
+            codePatchingAnnotationConsumer.accept(new OperandDataAnnotation(pos, pos + operandOffset, operandSize, pos + operandOffset + operandSize, patcher));
         }
     }
 
@@ -563,7 +586,7 @@ public abstract class AMD64BaseAssembler extends Assembler {
             assert index.equals(Register.None) : "cannot use RIP relative addressing with index register";
             emitByte(0x05 | regenc);
             if (codePatchingAnnotationConsumer != null && addr.instructionStartPosition >= 0) {
-                codePatchingAnnotationConsumer.accept(new OperandDataAnnotation(addr.instructionStartPosition, position(), 4, position() + 4 + additionalInstructionSize));
+                codePatchingAnnotationConsumer.accept(new OperandDataAnnotation(addr.instructionStartPosition, position(), 4, position() + 4 + additionalInstructionSize, I32PATCHER));
             }
             emitInt(disp);
         } else if (base.isValid()) {

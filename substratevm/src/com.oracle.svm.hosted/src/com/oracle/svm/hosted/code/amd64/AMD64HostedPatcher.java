@@ -29,10 +29,10 @@ import java.util.function.Consumer;
 import org.graalvm.compiler.asm.Assembler.CodeAnnotation;
 import org.graalvm.compiler.asm.amd64.AMD64BaseAssembler.OperandDataAnnotation;
 import org.graalvm.compiler.code.CompilationResult;
-import org.graalvm.nativeimage.hosted.Feature;
 import org.graalvm.nativeimage.ImageSingletons;
 import org.graalvm.nativeimage.Platform;
 import org.graalvm.nativeimage.Platforms;
+import org.graalvm.nativeimage.hosted.Feature;
 
 import com.oracle.svm.core.SubstrateOptions;
 import com.oracle.svm.core.annotate.AutomaticFeature;
@@ -79,14 +79,8 @@ public class AMD64HostedPatcher extends CompilationResult.CodeAnnotation impleme
     @Uninterruptible(reason = ".")
     @Override
     public void patch(int codePos, int relative, byte[] code) {
-        int curValue = relative - (annotation.nextInstructionPosition - annotation.instructionPosition);
-
-        for (int i = 0; i < annotation.operandSize; i++) {
-            assert code[annotation.operandPosition + i] == 0;
-            code[annotation.operandPosition + i] = (byte) (curValue & 0xFF);
-            curValue = curValue >>> 8;
-        }
-        assert curValue == 0;
+        int address = relative - (annotation.nextInstructionPosition - annotation.instructionPosition);
+        annotation.patcher.patch(code, annotation.operandPosition, address);
     }
 
     @Override
@@ -118,4 +112,5 @@ public class AMD64HostedPatcher extends CompilationResult.CodeAnnotation impleme
             throw VMError.shouldNotReachHere("Unknown type of reference in code");
         }
     }
+
 }

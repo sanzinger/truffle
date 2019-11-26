@@ -24,12 +24,17 @@
  */
 package org.graalvm.compiler.asm;
 
+import static java.lang.Math.max;
+import static java.lang.Math.min;
+
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 
+import org.graalvm.compiler.core.common.NumUtil;
 import org.graalvm.compiler.debug.GraalError;
 
 import jdk.vm.ci.code.Register;
@@ -40,6 +45,10 @@ import jdk.vm.ci.code.TargetDescription;
  * The platform-independent base class for the assembler.
  */
 public abstract class Assembler {
+
+    public static long bitMask(int hiBit, int loBit) {
+        return -1l << (63 - hiBit + loBit) >>> (63 - hiBit);
+    }
 
     public abstract static class CodeAnnotation {
         /**
@@ -52,8 +61,395 @@ public abstract class Assembler {
         }
     }
 
+    public interface Patchable {
+        Patcher patcher();
+    }
+
     public final TargetDescription target;
     private List<LabelHint> jumpDisplacementHints;
+
+    public static class Patcher {
+        public final PatchGroup[] groups;
+
+        public Patcher(PatchDefinition[] patchDefinitions) {
+            this(new PatchGroup(patchDefinitions));
+        }
+
+        public Patcher(PatchGroup... groups) {
+            super();
+            this.groups = groups;
+        }
+
+        public static Patcher from(BitSpec spec) {
+            return new Patcher(PatchDefinition.fromBitSpec(spec));
+        }
+
+        public void patch(byte[] array, int offset, long value) {
+            long valueTmp = value;
+            for (PatchGroup pg : groups) {
+                long toPatch = Long.min(pg.maxValue, Long.max(pg.minValue, valueTmp));
+                if (toPatch > pg.maxValue) {
+                    toPatch = pg.maxValue;
+                } else if (toPatch < pg.minValue) {
+                    toPatch = pg.minValue;
+                }
+                for (PatchDefinition d : pg.definitions) {
+                    int idx = offset + d.byteOffset;
+                    int word = array[idx] & ~d.outputMask;
+                    long outputBitsBase = toPatch >>> d.inputShift;
+                    long outputBits = (outputBitsBase << d.outputShift) & d.outputMask;
+                    array[idx] = (byte) (word | outputBits);
+                }
+                valueTmp -= toPatch;
+            }
+            assert valueTmp == 0 : "Could not completly patch value 0x" + Long.toHexString(value) + " remaining part: 0x" + Long.toHexString(valueTmp);
+        }
+    }
+
+    public static class PatchGroup {
+        public final int bitCount;
+        public final long minValue;
+        public final long maxValue;
+        public final PatchDefinition[] definitions;
+
+        public PatchGroup(PatchDefinition... definitions) {
+            super();
+            int bitCount = 0;
+            for (PatchDefinition definition : definitions) {
+                bitCount += definition.bitCount;
+            }
+            this.bitCount = bitCount;
+            boolean signed = definitions[definitions.length - 1].signExtend;
+            if (signed) {
+                this.maxValue = bitMask(bitCount - 2, 0);
+                this.minValue = -1l << (bitCount - 1);
+            } else {
+                this.maxValue = bitMask(bitCount - 1, 0);
+                this.minValue = 0;
+            }
+            this.definitions = definitions;
+        }
+
+    }
+
+    public static class PatchDefinition {
+        public final int outputMask;
+        public final int bitCount;
+        public final int outputShift;
+        public final int inputShift;
+        public final int byteOffset;
+        public final boolean signExtend;
+
+        public PatchDefinition(int inputShift, int outputMask, int byteOffset, boolean signExtend) {
+            super();
+            this.outputMask = outputMask;
+            this.bitCount = Integer.bitCount(outputMask);
+            this.outputShift = Integer.numberOfTrailingZeros(outputMask);
+            this.inputShift = inputShift;
+            this.byteOffset = byteOffset;
+            this.signExtend = signExtend;
+        }
+
+        public static PatchDefinition[] fromBitSpec(BitSpec spec) {
+            ArrayList<PatchDefinition> result = new ArrayList<>();
+            doBuildFromBitSpec(spec, result, 0, 0);
+            return result.toArray(new PatchDefinition[result.size()]);
+        }
+
+        private static void doBuildFromBitSpec(BitSpec spec, ArrayList<PatchDefinition> result, int offset, int inBitOffset) {
+            if (spec instanceof ContinousBitSpec) {
+                fromContinous(spec, result, offset, inBitOffset);
+            } else if (spec instanceof CompositeBitSpec) {
+                CompositeBitSpec comp = (CompositeBitSpec) spec;
+                doBuildFromBitSpec(comp.right, result, offset, inBitOffset);
+                doBuildFromBitSpec(comp.left, result, offset, inBitOffset + comp.right.getWidth());
+            } else if (spec instanceof ConcatBitSpec) {
+                ConcatBitSpec conc = (ConcatBitSpec) spec;
+                int iOffset = offset;
+                int bitOffset = inBitOffset;
+                for (BitSpec iSpec : conc.bitSpecs) {
+                    doBuildFromBitSpec(iSpec, result, iOffset, bitOffset);
+                    iOffset += iSpec.wordLength();
+                    bitOffset += iSpec.getWidth();
+                }
+            } else {
+                throw GraalError.shouldNotReachHere("Unknown BitSpec " + spec + " of type " + spec.getClass());
+            }
+        }
+
+        private static void fromContinous(BitSpec spec, ArrayList<PatchDefinition> result, int offset, int inBitOffset) {
+            ContinousBitSpec cont = (ContinousBitSpec) spec;
+            int bitOffset = inBitOffset;
+            int bitsConsumed = 0;
+            for (int i = 0; i < spec.wordLength(); i++) {
+                int byteLow = i * 8;
+                int byteHi = (i + 1) * 8;
+                int byteLowBit = max(byteLow, min(byteHi, cont.lowBit));
+                int byteHiBit = max(byteLow, min(byteHi, cont.hiBit + 1));
+                int inputShift = byteHiBit - byteLowBit;
+                int inputMask = (1 << inputShift) - 1;
+                int outputMask = inputMask << (byteLowBit % 8);
+                if (inputShift > 0) {
+                    bitsConsumed += inputShift;
+                    boolean signExtend = spec.isSignExtend() && bitsConsumed == spec.getWidth();
+                    result.add(new PatchDefinition(bitOffset, outputMask, offset + i, signExtend));
+                }
+                bitOffset += inputShift;
+            }
+        }
+
+        @Override
+        public String toString() {
+            return "Mask: 0b" + Integer.toBinaryString(outputMask);
+        }
+    }
+
+    public abstract static class BitSpec {
+
+        protected final boolean signExtend;
+
+        public BitSpec(boolean signExtend) {
+            super();
+            this.signExtend = signExtend;
+        }
+
+        public final boolean isSignExtend() {
+            return signExtend;
+        }
+
+        public abstract int setBits(int word, int value);
+
+        public abstract int getBits(int word);
+
+        public abstract int getMask();
+
+        public abstract int getWidth();
+
+        public abstract int wordLength();
+
+        public abstract ByteOrder byteOrder();
+
+        public abstract boolean valueFits(int value);
+    }
+
+    public static final class ContinousBitSpec extends BitSpec {
+        private final int hiBit;
+        private final int lowBit;
+        private final int width;
+        private final int mask;
+        private final int wordLength;
+        private final String name;
+
+        public ContinousBitSpec(int hiBit, int lowBit, String name) {
+            this(hiBit, lowBit, 4, name);
+        }
+
+        public ContinousBitSpec(int hiBit, int lowBit, int wordLength, String name) {
+            this(hiBit, lowBit, false, wordLength, name);
+        }
+
+        public ContinousBitSpec(int hiBit, int lowBit, boolean signExt, String name) {
+            this(hiBit, lowBit, signExt, 4, name);
+        }
+
+        public ContinousBitSpec(int hiBit, int lowBit, boolean signExt, int wordLength, String name) {
+            super(signExt);
+            assert hiBit < wordLength * 8;
+            this.hiBit = hiBit;
+            this.lowBit = lowBit;
+            this.width = hiBit - lowBit + 1;
+            mask = ((1 << width) - 1) << lowBit;
+            this.name = name;
+            this.wordLength = wordLength;
+        }
+
+        @Override
+        public int setBits(int word, int value) {
+            assert valueFits(value) : String.format("Value 0x%x for field %s does not fit.", value, this);
+            return (word & ~mask) | ((value << lowBit) & mask);
+        }
+
+        @Override
+        public int getBits(int word) {
+            if (signExtend) {
+                return ((word & mask) << (31 - hiBit)) >> (32 - width);
+            } else {
+                return (word & mask) >>> lowBit;
+            }
+        }
+
+        @Override
+        public int getWidth() {
+            return width;
+        }
+
+        @Override
+        public int getMask() {
+            return mask;
+        }
+
+        @Override
+        public int wordLength() {
+            return wordLength;
+        }
+
+        @Override
+        public ByteOrder byteOrder() {
+            return ByteOrder.LITTLE_ENDIAN;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("%s [%d:%d]", name, hiBit, lowBit);
+        }
+
+        @Override
+        public boolean valueFits(int value) {
+            if (signExtend) {
+                return NumUtil.isSignedNbit(getWidth(), value);
+            } else {
+                return NumUtil.isUnsignedNbit(getWidth(), value);
+            }
+        }
+
+    }
+
+    public static final class ConcatBitSpec extends BitSpec {
+        BitSpec[] bitSpecs;
+        final int wordLength;
+        final int bitWidth;
+
+        public ConcatBitSpec(BitSpec... bitSpecs) {
+            super(bitSpecs[bitSpecs.length - 1].isSignExtend());
+            this.bitSpecs = bitSpecs;
+            int l = 0;
+            int bits = 0;
+            for (BitSpec spec : bitSpecs) {
+                l += spec.wordLength();
+                bits += spec.getWidth();
+            }
+            this.wordLength = l;
+            this.bitWidth = bits;
+        }
+
+        @Override
+        public ByteOrder byteOrder() {
+            return ByteOrder.LITTLE_ENDIAN;
+        }
+
+        @Override
+        public int getBits(int word) {
+            throw GraalError.shouldNotReachHere();
+        }
+
+        @Override
+        public int setBits(int word, int value) {
+            throw GraalError.shouldNotReachHere();
+        }
+
+        @Override
+        public int getMask() {
+            throw GraalError.shouldNotReachHere();
+        }
+
+        @Override
+        public int getWidth() {
+            return bitWidth;
+        }
+
+        @Override
+        public int wordLength() {
+            return wordLength;
+        }
+
+        @Override
+        public boolean valueFits(int value) {
+            throw GraalError.shouldNotReachHere();
+        }
+    }
+
+    public static final class CompositeBitSpec extends BitSpec {
+        private final BitSpec left;
+        private final int leftWidth;
+        private final BitSpec right;
+        private final int rightWidth;
+        private final int width;
+
+        public CompositeBitSpec(BitSpec left, BitSpec right) {
+            super(left.isSignExtend());
+            assert !right.isSignExtend() : String.format("Right field %s must not be sign extended", right);
+            this.left = left;
+            this.leftWidth = left.getWidth();
+            this.right = right;
+            this.rightWidth = right.getWidth();
+            this.width = leftWidth + rightWidth;
+        }
+
+        @Override
+        public int getBits(int word) {
+            int l = left.getBits(word);
+            int r = right.getBits(word);
+            return (l << rightWidth) | r;
+        }
+
+        @Override
+        public int setBits(int word, int value) {
+            int l = leftBits(value);
+            int r = rightBits(value);
+            return left.setBits(right.setBits(word, r), l);
+        }
+
+        private int leftBits(int value) {
+            return getBits(value, width - 1, rightWidth, signExtend);
+        }
+
+        private int rightBits(int value) {
+            return getBits(value, rightWidth - 1, 0, false);
+        }
+
+        @Override
+        public int getWidth() {
+            return width;
+        }
+
+        @Override
+        public int getMask() {
+            int l = left.getMask();
+            int r = right.getMask();
+            return l | r;
+        }
+
+        @Override
+        public int wordLength() {
+            return 4;
+        }
+
+        @Override
+        public ByteOrder byteOrder() {
+            return ByteOrder.LITTLE_ENDIAN;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("CompositeBitSpec[%s, %s]", left, right);
+        }
+
+        @Override
+        public boolean valueFits(int value) {
+            int l = leftBits(value);
+            int r = rightBits(value);
+            return left.valueFits(l) && right.valueFits(r);
+        }
+
+        private static int getBits(int inst, int hiBit, int lowBit, boolean signExtended) {
+            int shifted = inst >> lowBit;
+            if (signExtended) {
+                return shifted;
+            } else {
+                return shifted & ((1 << (hiBit - lowBit + 1)) - 1);
+            }
+        }
+    }
 
     /**
      * Labels with instructions to be patched when it is {@linkplain Label#bind bound}.

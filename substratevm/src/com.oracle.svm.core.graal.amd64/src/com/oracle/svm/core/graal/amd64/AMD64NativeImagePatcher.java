@@ -27,6 +27,7 @@ package com.oracle.svm.core.graal.amd64;
 import java.util.function.Consumer;
 
 import org.graalvm.compiler.asm.Assembler;
+import org.graalvm.compiler.asm.Assembler.Patcher;
 import org.graalvm.compiler.asm.amd64.AMD64BaseAssembler.OperandDataAnnotation;
 import org.graalvm.compiler.code.CompilationResult;
 import org.graalvm.nativeimage.ImageSingletons;
@@ -70,13 +71,7 @@ public class AMD64NativeImagePatcher extends CompilationResult.CodeAnnotation im
     @Override
     public void patchCode(int relative, byte[] code) {
         int curValue = relative - (annotation.nextInstructionPosition - annotation.instructionPosition);
-
-        for (int i = 0; i < annotation.operandSize; i++) {
-            assert code[annotation.operandPosition + i] == 0;
-            code[annotation.operandPosition + i] = (byte) (curValue & 0xFF);
-            curValue = curValue >>> 8;
-        }
-        assert curValue == 0;
+        annotation.patcher.patch(code, annotation.operandPosition, curValue);
     }
 
     @Override
@@ -92,5 +87,10 @@ public class AMD64NativeImagePatcher extends CompilationResult.CodeAnnotation im
     @Override
     public boolean equals(Object obj) {
         return obj == this;
+    }
+
+    @Override
+    public Patcher patcher() {
+        return annotation.patcher;
     }
 }
